@@ -1,0 +1,45 @@
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Displayer</title>
+  <style>
+    body {
+      background-color: #f7f7f7;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .iframe-container {
+      width: 90%;
+      max-width: 900px;
+      aspect-ratio: 16 / 9;
+      border: 8px solid lightblue;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      border-radius: 16px;
+      overflow: hidden;
+      background: white;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="iframe-container">
+    <iframe src="https://script.google.com/macros/s/AKfycbzFBGE05pT6mNg2ICJP8mhfojxPP6Izorq5o7-Ga4ab06zJ4xjHHyK15cLITYAG3Rya/exec" allowfullscreen></iframe>
+  </div>
+</body>
+</html>
