@@ -4,7 +4,6 @@ class PlayCanvasHelper {
       mouse: new pc.Mouse(canvas),
       touch: new pc.TouchDevice(canvas),
     });
-
     this.app.start();
     this.app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
     this.app.setCanvasResolution(pc.RESOLUTION_AUTO);
@@ -15,21 +14,54 @@ class PlayCanvasHelper {
 
     this.entities = {};
 
-    if (options.skybox) {
-      this.loadSkybox(options.skybox);
+    // Init physics wereld als CANNON globaal bestaat
+    if (typeof CANNON !== "undefined") {
+      this.initPhysics();
     }
 
     if (options.initCamera !== false) {
-      this.entities.camera = this.createCamera(options.cameraPosition || [0, 1.5, 5]);
+      this.entities.camera = this.createCamera(options.cameraPosition || [0, 3, 6]);
     }
 
     if (options.initLight !== false) {
       this.entities.light = this.createLight(options.lightPosition || [10, 10, 10]);
     }
+
+    this.physicsObjects = [];
+
+    if (this.world) {
+      this.app.on('update', dt => {
+        this.world.step(dt);
+
+        // Sync physics bodies met PlayCanvas entities
+        for (const entry of this.physicsObjects) {
+          const { entity, body } = entry;
+          const p = body.position;
+          entity.setPosition(p.x, p.y, p.z);
+
+          const q = body.quaternion;
+          entity.setRotation(q.x, q.y, q.z, q.w);
+        }
+      });
+    }
+  }
+
+  initPhysics() {
+    this.world = new CANNON.World();
+    this.world.gravity.set(0, -9.82, 0);
+    this.world.broadphase = new CANNON.NaiveBroadphase();
+    this.world.solver.iterations = 10;
+
+    this.physicsMaterial = new CANNON.Material("defaultMaterial");
+    const contactMaterial = new CANNON.ContactMaterial(this.physicsMaterial, this.physicsMaterial, {
+      friction: 0.4,
+      restitution: 0.3,
+    });
+    this.world.addContactMaterial(contactMaterial);
   }
 
   createBox(params = {}) {
-    const { position = [0, 0, 0], size = [1, 1, 1], color = [1, 1, 1], name = 'Box' } = params;
+    const { position = [0, 0, 0], size = [1, 1, 1], color = [1, 1, 1], name = 'Box', mass = 1 } = params;
     const box = new pc.Entity(name);
     box.addComponent("model", { type: "box" });
     box.setLocalScale(...size);
@@ -41,23 +73,54 @@ class PlayCanvasHelper {
     box.model.material = material;
 
     this.app.root.addChild(box);
+
+    if (this.world) {
+      const halfExtents = new CANNON.Vec3(size[0]/2, size[1]/2, size[2]/2);
+      const shape = new CANNON.Box(halfExtents);
+      const body = new CANNON.Body({
+        mass,
+        shape,
+        position: new CANNON.Vec3(...position),
+        material: this.physicsMaterial,
+      });
+      this.world.addBody(body);
+
+      this.physicsObjects.push({ entity: box, body });
+    }
+
     return box;
   }
 
-  createSphere(params = {}) {
-    const { position = [0, 0, 0], radius = 0.5, color = [1, 1, 1], name = 'Sphere' } = params;
-    const sphere = new pc.Entity(name);
-    sphere.addComponent("model", { type: "sphere" });
-    sphere.setLocalScale(radius, radius, radius);
-    sphere.setPosition(...position);
+  createPlane(params = {}) {
+    const { position = [0, 0, 0], rotation = [0, 0, 0], size = [10, 10], color = [0.2, 0.2, 0.2], name = 'Plane' } = params;
+    const plane = new pc.Entity(name);
+    plane.addComponent("model", { type: "box" }); // dunne box als vloer
+    plane.setLocalScale(size[0], 0.1, size[1]);
+    plane.setPosition(...position);
+    plane.setEulerAngles(...rotation);
 
     const material = new pc.StandardMaterial();
     material.diffuse = new pc.Color(...color);
     material.update();
-    sphere.model.material = material;
+    plane.model.material = material;
 
-    this.app.root.addChild(sphere);
-    return sphere;
+    this.app.root.addChild(plane);
+
+    if (this.world) {
+      const shape = new CANNON.Box(new CANNON.Vec3(size[0]/2, 0.05, size[1]/2));
+      const body = new CANNON.Body({
+        mass: 0,
+        shape,
+        position: new CANNON.Vec3(...position),
+        quaternion: new CANNON.Quaternion().setFromEuler(...rotation.map(v => v * Math.PI/180)),
+        material: this.physicsMaterial,
+      });
+      this.world.addBody(body);
+
+      this.physicsObjects.push({ entity: plane, body });
+    }
+
+    return plane;
   }
 
   createCamera(position = [0, 0, 3], lookAt = [0, 0, 0]) {
@@ -86,16 +149,6 @@ class PlayCanvasHelper {
     return light;
   }
 
-  loadSkybox(urlPrefix) {
-    this.app.assets.loadFromUrl(urlPrefix + ".hdr", "texture", (err, asset) => {
-      if (err) return console.error(err);
-      const cubeMap = asset.resource;
-      cubeMap._levels = [cubeMap._levels[0]];
-      this.app.scene.skyboxMip = 0;
-      this.app.scene.setSkybox(cubeMap);
-    });
-  }
-
   onUpdate(fn) {
     this.app.on("update", fn);
   }
@@ -104,10 +157,8 @@ class PlayCanvasHelper {
     const sensitivity = options.sensitivity || 0.005;
     let dragging = false;
     let lastPos = null;
-    let pitch = 0; // rotatie rondom X (omhoog/omlaag)
-    let yaw = 0;   // rotatie rondom Y (links/rechts)
-
-    const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+    let pitch = 0;
+    let yaw = 0;
 
     entity.setLocalRotation(0, 0, 0, 1);
 
@@ -127,15 +178,16 @@ class PlayCanvasHelper {
       const dy = e.clientY - lastPos.y;
       lastPos = { x: e.clientX, y: e.clientY };
 
-      yaw += dx * sensitivity;    // positief, muis naar rechts draait object naar rechts
-      pitch += dy * sensitivity;  // positief, muis naar beneden kantelt object omhoog
-      pitch = clamp(pitch, -Math.PI / 2, Math.PI / 2);
+      yaw -= dx * sensitivity;  // om correcte richting te krijgen
+      pitch -= dy * sensitivity;
+
+      // Geen limiet op pitch/yaw, rotatie kan onbeperkt
 
       const quatYaw = new pc.Quat();
-      quatYaw.setFromAxisAngle(pc.Vec3.UP, pc.math.RAD_TO_DEG * yaw);
+      quatYaw.setFromAxisAngle(pc.Vec3.UP, yaw * (180/Math.PI));
 
       const quatPitch = new pc.Quat();
-      quatPitch.setFromAxisAngle(pc.Vec3.RIGHT, pc.math.RAD_TO_DEG * pitch);
+      quatPitch.setFromAxisAngle(pc.Vec3.RIGHT, pitch * (180/Math.PI));
 
       const combined = quatYaw.clone().mul(quatPitch);
       entity.setLocalRotation(combined);
@@ -147,7 +199,6 @@ class PlayCanvasHelper {
     window.addEventListener("mouseup", onUp);
     window.addEventListener("mousemove", onMove);
 
-    // Return functie om events te verwijderen als nodig
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("mouseup", onUp);
