@@ -29,7 +29,6 @@ class PlayCanvasHelper {
   }
 
   createBox(params = {}) {
-    // params: position, size, color, name
     const { position = [0, 0, 0], size = [1, 1, 1], color = [1, 1, 1], name = 'Box' } = params;
     const box = new pc.Entity(name);
     box.addComponent("model", { type: "box" });
@@ -101,7 +100,6 @@ class PlayCanvasHelper {
     this.app.on("update", fn);
   }
 
-  // Muisrotatie helper die quaternions gebruikt voor smooth rotation zonder gimbal lock
   enableMouseRotation(entity, options = {}) {
     const sensitivity = options.sensitivity || 0.005;
     let dragging = false;
@@ -129,8 +127,8 @@ class PlayCanvasHelper {
       const dy = e.clientY - lastPos.y;
       lastPos = { x: e.clientX, y: e.clientY };
 
-      yaw -= dx * sensitivity;
-      pitch -= dy * sensitivity;
+      yaw += dx * sensitivity;    // positief, muis naar rechts draait object naar rechts
+      pitch += dy * sensitivity;  // positief, muis naar beneden kantelt object omhoog
       pitch = clamp(pitch, -Math.PI / 2, Math.PI / 2);
 
       const quatYaw = new pc.Quat();
@@ -149,7 +147,7 @@ class PlayCanvasHelper {
     window.addEventListener("mouseup", onUp);
     window.addEventListener("mousemove", onMove);
 
-    // Return functie om events weer te verwijderen als nodig
+    // Return functie om events te verwijderen als nodig
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("mouseup", onUp);
