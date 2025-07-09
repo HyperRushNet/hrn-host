@@ -1,1 +1,338 @@
-class PlayCanvasHelper{constructor(e,o={}){this.app=new pc.Application(e,{mouse:new pc.Mouse(e),touch:new pc.TouchDevice(e)}),this.app.start(),this.app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW),this.app.setCanvasResolution(pc.RESOLUTION_AUTO),window.addEventListener("resize",()=>this.app.resizeCanvas()),this.app.scene.gammaCorrection=pc.GAMMA_SRGB,this.app.scene.toneMapping=pc.TONEMAP_ACES,this.entities={},typeof CANNON!="undefined"&&this.initPhysics(),o.initCamera!==!1&&(this.entities.camera=this.createCamera(o.cameraPosition||[0,3,6])),o.initLight!==!1&&(this.entities.light=this.createLight(o.lightPosition||[10,10,10])),this.physicsObjects=[],this.world&&this.app.on("update",t=>{const n=1/60;this.world.step(n);for(const{entity:e,body:o}of this.physicsObjects){const t=o.position;e.setPosition(t.x,t.y,t.z);const n=o.quaternion;e.setRotation(n.x,n.y,n.z,n.w)}})}initPhysics(){this.world=new CANNON.World,this.world.gravity.set(0,-9.82,0),this.world.broadphase=new CANNON.NaiveBroadphase,this.world.solver.iterations=10,this.physicsMaterial=new CANNON.Material("defaultMaterial");const e=new CANNON.ContactMaterial(this.physicsMaterial,this.physicsMaterial,{friction:.4,restitution:.3});this.world.addContactMaterial(e)}createFlatBoxMesh(e){const o=this.app,t=e.map(e=>e/2),n=[-t[0],-t[1],t[2],t[0],-t[1],t[2],t[0],t[1],t[2],-t[0],t[1],t[2],t[0],-t[1],-t[2],-t[0],-t[1],-t[2],-t[0],t[1],-t[2],t[0],t[1],-t[2],-t[0],-t[1],-t[2],-t[0],-t[1],t[2],-t[0],t[1],t[2],-t[0],t[1],-t[2],t[0],-t[1],t[2],t[0],-t[1],-t[2],t[0],t[1],-t[2],t[0],t[1],t[2],-t[0],t[1],t[2],t[0],t[1],-t[2],-t[0],t[1],-t[2],-t[0],-t[1],-t[2],t[0],-t[1],-t[2],t[0],-t[1],t[2],-t[0],-t[1],t[2]],r=[0,0,1,0,0,1,0,0,1,0,0,1,0,0,-1,0,0,-1,0,0,-1,0,0,-1,-1,0,0,-1,0,0,-1,0,0,-1,0,0,1,0,0,1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,0,0,1,0,0,-1,0,0,-1,0,0,-1,0,0,-1],a=[0,0,1,0,1,0,1,1,0,1,0,1,0,0,1,0,1,0,1,1,0,1,0,1,0,0,1,0,1,0,1,1,0,1,0,1,0,0,1,0,1,0,1,1,0,1,0,1,0,0,1,0,1,0,1,1,0,1,0,1];const i=new pc.VertexFormat(o.graphicsDevice,[{semantic:pc.SEMANTIC_POSITION,components:3,type:pc.TYPE_FLOAT32},{semantic:pc.SEMANTIC_NORMAL,components:3,type:pc.TYPE_FLOAT32},{semantic:pc.SEMANTIC_TEXCOORD0,components:2,type:pc.TYPE_FLOAT32}]),l=new pc.VertexBuffer(o.graphicsDevice,i,24),s=new Float32Array(24*8);for(let c=0;c<24;c++)s[8*c]=n[3*c],s[8*c+1]=n[3*c+1],s[8*c+2]=n[3*c+2],s[8*c+3]=r[3*c],s[8*c+4]=r[3*c+1],s[8*c+5]=r[3*c+2],s[8*c+6]=a[2*c],s[8*c+7]=a[2*c+1];l.setData(s);const d=[0,1,2,0,2,3,4,5,6,4,6,7,8,9,10,8,10,11,12,13,14,12,14,15,16,17,18,16,18,19,20,21,22,20,22,23],m=new pc.IndexBuffer(o.graphicsDevice,pc.INDEXFORMAT_UINT16,d.length);return m.setData(new Uint16Array(d)),this.mesh=new pc.Mesh,this.mesh.vertexBuffer=l,this.mesh.indexBuffer[0]=m,this.mesh.primitive[0].type=pc.PRIMITIVE_TRIANGLES,this.mesh.primitive[0].base=0,this.mesh.primitive[0].count=d.length,this.mesh}createBox(e={}){var o=this,t=e.position||[0,0,0],n=e.size||[1,1,1],r=e.color||[1,1,1],a=e.name||"Box",i=e.mass||1,l=e.textureUrl||null,s=e.rotation||[0,0,0];const c=new pc.Entity(a),u=this.createFlatBoxMesh(n),m=new pc.StandardMaterial;let f=new pc.MeshInstance(u,m);c.addComponent("render"),c.render.meshInstances=[f],c.setPosition(...t),c.setEulerAngles(...s),this.app.root.addChild(c),l&&(this.app.assets.loadFromUrl(l,"texture",function(e){m.diffuseMap=e.resource,m.diffuseMapAddressU=pc.ADDRESS_CLAMP_TO_EDGE,m.diffuseMapAddressV=pc.ADDRESS_CLAMP_TO_EDGE,m.diffuseMapTiling=new pc.Vec2(n[0],n[2]),m.update()}));if(this.world){const e=new CANNON.Vec3(n[0]/2,n[1]/2,n[2]/2),o=new CANNON.Box(e),r=new CANNON.Body({mass:i,shape:o,position:new CANNON.Vec3(...t),quaternion:new CANNON.Quaternion().setFromEuler(s[0]*Math.PI/180,s[1]*Math.PI/180,s[2]*Math.PI/180,"XYZ"),material:this.physicsMaterial,linearDamping:.05,angularDamping:.05});this.world.addBody(r),this.physicsObjects.push({entity:c,body:r})}return c}createPlane(e={}){const{o:e.position||[0,0,0],t:e.rotation||[0,0,0],n:e.size||[10,10],r:e.color||[.2,.2,.2],a:e.name||"Plane"}=e,i=new pc.Entity(a);i.addComponent("model",{type:"box"}),i.setLocalScale(n[0],.1,n[1]),i.setPosition(...o),i.setEulerAngles(...t);const l=new pc.StandardMaterial;l.diffuse=new pc.Color(...r),l.update(),i.model.material=l,this.app.root.addChild(i),this.world&&(function(e,t,n){const r=new CANNON.Box(new CANNON.Vec3(t[0]/2,.05,t[1]/2)),a=new CANNON.Body({mass:0,shape:r,position:new CANNON.Vec3(...e),quaternion:new CANNON.Quaternion().setFromEuler(t[0]*Math.PI/180,t[1]*Math.PI/180,t[2]*Math.PI/180),material:this.physicsMaterial});this.world.addBody(a),this.physicsObjects.push({entity:n,body:a})}.call(this,o,t,i));return i}createCamera(e=[0,0,3],o=[0,0,0]){const t=new pc.Entity("Camera");return t.addComponent("camera",{clearColor:new pc.Color(.1,.1,.1)}),t.setPosition(...e),t.lookAt(new pc.Vec3(...o)),this.app.root.addChild(t),this.app.camera=t,t}createLight(e=[10,10,10],o=[1,1,1],t=1){const n=new pc.Entity("Directional Light");return n.addComponent("light",{type:"directional",color:new pc.Color(...o),intensity:t,castShadows:!0,shadowBias:.05,shadowDistance:50,normalOffsetBias:.01}),n.setPosition(...e),n.setEulerAngles(45,45,0),this.app.root.addChild(n),n}enableMouseRotation(e,o={}){const t=o.sensitivity||.3;let n=!1,r=0,a=0,i=0,l=0,s=this.app.graphicsDevice.canvas;s.addEventListener("mousedown",e=>{n=!0,r=e.clientX,a=e.clientY}),window.addEventListener("mouseup",()=>{n=!1}),window.addEventListener("mousemove",o=>{if(!n)return;const s=o.clientX-r,d=o.clientY-a;r=o.clientX,a=o.clientY,i-=s*t,l-=d*t,l=Math.max(-89,Math.min(89,l));const m=new pc.Quat().setFromEulerAngles(0,i,0),c=new pc.Quat().setFromEulerAngles(l,0,0),u=new pc.Quat;u.mul2(m,c),e.setRotation(u)})}}
+class PlayCanvasHelper {
+  constructor(canvas, options = {}) {
+    this.app = new pc.Application(canvas, {
+      mouse: new pc.Mouse(canvas),
+      touch: new pc.TouchDevice(canvas),
+    });
+    this.app.start();
+    this.app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
+    this.app.setCanvasResolution(pc.RESOLUTION_AUTO);
+    window.addEventListener('resize', () => this.app.resizeCanvas());
+
+    this.app.scene.gammaCorrection = pc.GAMMA_SRGB;
+    this.app.scene.toneMapping = pc.TONEMAP_ACES;
+
+    this.entities = {};
+
+    if (typeof CANNON !== "undefined") {
+      this.initPhysics();
+    }
+
+    if (options.initCamera !== false) {
+      this.entities.camera = this.createCamera(options.cameraPosition || [0, 3, 6]);
+    }
+
+    if (options.initLight !== false) {
+      this.entities.light = this.createLight(options.lightPosition || [10, 10, 10]);
+    }
+
+    this.physicsObjects = [];
+
+    if (this.world) {
+      this.app.on('update', dt => {
+        const fixedTimeStep = 1 / 60;
+        this.world.step(fixedTimeStep);
+
+        for (const { entity, body } of this.physicsObjects) {
+          const p = body.position;
+          entity.setPosition(p.x, p.y, p.z);
+
+          const q = body.quaternion;
+          entity.setRotation(q.x, q.y, q.z, q.w);
+        }
+      });
+    }
+  }
+
+  initPhysics() {
+    this.world = new CANNON.World();
+    this.world.gravity.set(0, -9.82, 0);
+    this.world.broadphase = new CANNON.NaiveBroadphase();
+    this.world.solver.iterations = 10;
+
+    this.physicsMaterial = new CANNON.Material("defaultMaterial");
+    const contactMaterial = new CANNON.ContactMaterial(this.physicsMaterial, this.physicsMaterial, {
+      friction: 0.4,
+      restitution: 0.3,
+    });
+    this.world.addContactMaterial(contactMaterial);
+  }
+
+  createFlatBoxMesh(size) {
+    const app = this.app;
+    const halfSize = size.map(s => s / 2);
+
+    const positions = [
+      // Front face
+      -halfSize[0], -halfSize[1], halfSize[2],
+      halfSize[0], -halfSize[1], halfSize[2],
+      halfSize[0], halfSize[1], halfSize[2],
+      -halfSize[0], halfSize[1], halfSize[2],
+
+      // Back face
+      halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0], halfSize[1], -halfSize[2],
+      halfSize[0], halfSize[1], -halfSize[2],
+
+      // Left face
+      -halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0], -halfSize[1], halfSize[2],
+      -halfSize[0], halfSize[1], halfSize[2],
+      -halfSize[0], halfSize[1], -halfSize[2],
+
+      // Right face
+      halfSize[0], -halfSize[1], halfSize[2],
+      halfSize[0], -halfSize[1], -halfSize[2],
+      halfSize[0], halfSize[1], -halfSize[2],
+      halfSize[0], halfSize[1], halfSize[2],
+
+      // Top face
+      -halfSize[0], halfSize[1], halfSize[2],
+      halfSize[0], halfSize[1], halfSize[2],
+      halfSize[0], halfSize[1], -halfSize[2],
+      -halfSize[0], halfSize[1], -halfSize[2],
+
+      // Bottom face
+      -halfSize[0], -halfSize[1], -halfSize[2],
+      halfSize[0], -halfSize[1], -halfSize[2],
+      halfSize[0], -halfSize[1], halfSize[2],
+      -halfSize[0], -halfSize[1], halfSize[2],
+    ];
+
+    const normals = [
+      // Front
+      0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+      // Back
+      0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+      // Left
+      -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
+      // Right
+      1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+      // Top
+      0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+      // Bottom
+      0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+    ];
+
+    const uvs = [
+      // Front
+      0, 0, 1, 0, 1, 1, 0, 1,
+      // Back
+      0, 0, 1, 0, 1, 1, 0, 1,
+      // Left
+      0, 0, 1, 0, 1, 1, 0, 1,
+      // Right
+      0, 0, 1, 0, 1, 1, 0, 1,
+      // Top
+      0, 0, 1, 0, 1, 1, 0, 1,
+      // Bottom
+      0, 0, 1, 0, 1, 1, 0, 1,
+    ];
+
+    const indices = [
+      0, 1, 2, 0, 2, 3,      // Front
+      4, 5, 6, 4, 6, 7,      // Back
+      8, 9, 10, 8, 10, 11,   // Left
+      12, 13, 14, 12, 14, 15,// Right
+      16, 17, 18, 16, 18, 19,// Top
+      20, 21, 22, 20, 22, 23 // Bottom
+    ];
+
+    const vertexFormat = new pc.VertexFormat(this.app.graphicsDevice, [
+      { semantic: pc.SEMANTIC_POSITION, components: 3, type: pc.TYPE_FLOAT32 },
+      { semantic: pc.SEMANTIC_NORMAL, components: 3, type: pc.TYPE_FLOAT32 },
+      { semantic: pc.SEMANTIC_TEXCOORD0, components: 2, type: pc.TYPE_FLOAT32 },
+    ]);
+
+    const vertexBuffer = new pc.VertexBuffer(this.app.graphicsDevice, vertexFormat, 24);
+
+    const vertexData = new Float32Array(24 * 8);
+    for (let i = 0; i < 24; i++) {
+      vertexData[i * 8 + 0] = positions[i * 3 + 0];
+      vertexData[i * 8 + 1] = positions[i * 3 + 1];
+      vertexData[i * 8 + 2] = positions[i * 3 + 2];
+      vertexData[i * 8 + 3] = normals[i * 3 + 0];
+      vertexData[i * 8 + 4] = normals[i * 3 + 1];
+      vertexData[i * 8 + 5] = normals[i * 3 + 2];
+      vertexData[i * 8 + 6] = uvs[i * 2 + 0];
+      vertexData[i * 8 + 7] = uvs[i * 2 + 1];
+    }
+
+    vertexBuffer.setData(vertexData);
+
+    const indexBuffer = new pc.IndexBuffer(this.app.graphicsDevice, pc.INDEXFORMAT_UINT16, indices.length);
+    indexBuffer.setData(new Uint16Array(indices));
+
+    const mesh = new pc.Mesh();
+    mesh.vertexBuffer = vertexBuffer;
+    mesh.indexBuffer[0] = indexBuffer;
+    mesh.primitive[0].type = pc.PRIMITIVE_TRIANGLES;
+    mesh.primitive[0].base = 0;
+    mesh.primitive[0].count = indices.length;
+
+    return mesh;
+  }
+
+  createBox(params = {}) {
+    const {
+      position = [0, 0, 0],
+      size = [1, 1, 1],
+      color = [1, 1, 1],
+      name = 'Box',
+      mass = 1,
+      textureUrl = null,
+      rotation = [0, 0, 0]
+    } = params;
+
+    const box = new pc.Entity(name);
+
+    const material = new pc.StandardMaterial();
+    material.diffuse = new pc.Color(color[0], color[1], color[2]);
+    material.update();
+
+    if (textureUrl) {
+      const texture = new pc.Texture(this.app.graphicsDevice);
+      const img = new Image();
+      img.onload = () => {
+        texture.setSource(img);
+        material.diffuseMap = texture;
+        material.update();
+      };
+      img.src = textureUrl;
+    }
+
+    box.addComponent('render', {
+      type: 'box',
+      material: material,
+    });
+
+    box.setLocalScale(size[0], size[1], size[2]);
+    box.setPosition(position[0], position[1], position[2]);
+    box.setEulerAngles(rotation[0], rotation[1], rotation[2]);
+
+    this.app.root.addChild(box);
+
+    if (this.world && mass > 0) {
+      const shape = new CANNON.Box(new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2));
+      const body = new CANNON.Body({ mass });
+      body.addShape(shape);
+      body.position.set(position[0], position[1], position[2]);
+      this.world.addBody(body);
+      this.physicsObjects.push({ entity: box, body });
+    }
+
+    return box;
+  }
+
+  createPlane(params = {}) {
+    const {
+      position = [0, 0, 0],
+      size = [10, 10],
+      color = [0.5, 0.5, 0.5],
+      name = 'Plane',
+      rotation = [-90, 0, 0],
+      mass = 0,
+    } = params;
+
+    const plane = new pc.Entity(name);
+
+    const material = new pc.StandardMaterial();
+    material.diffuse = new pc.Color(color[0], color[1], color[2]);
+    material.update();
+
+    plane.addComponent('render', {
+      type: 'plane',
+      material: material,
+    });
+
+    plane.setLocalScale(size[0], size[1], 1);
+    plane.setPosition(position[0], position[1], position[2]);
+    plane.setEulerAngles(rotation[0], rotation[1], rotation[2]);
+
+    this.app.root.addChild(plane);
+
+    if (this.world) {
+      const shape = new CANNON.Plane();
+      const body = new CANNON.Body({ mass });
+      body.addShape(shape);
+      body.position.set(position[0], position[1], position[2]);
+      body.quaternion.setFromEuler(
+        pc.math.DEG_TO_RAD * rotation[0],
+        pc.math.DEG_TO_RAD * rotation[1],
+        pc.math.DEG_TO_RAD * rotation[2]
+      );
+      this.world.addBody(body);
+      this.physicsObjects.push({ entity: plane, body });
+    }
+
+    return plane;
+  }
+
+  createCamera(position = [0, 3, 6]) {
+    const camera = new pc.Entity('Camera');
+    camera.addComponent('camera', {
+      clearColor: new pc.Color(0.4, 0.45, 0.5),
+    });
+    camera.setPosition(position[0], position[1], position[2]);
+    this.app.root.addChild(camera);
+
+    return camera;
+  }
+
+  createLight(position = [10, 10, 10]) {
+    const light = new pc.Entity('Light');
+    light.addComponent('light', {
+      type: 'directional',
+      color: new pc.Color(1, 1, 1),
+      intensity: 1,
+      castShadows: true,
+    });
+    light.setPosition(position[0], position[1], position[2]);
+    light.setEulerAngles(-45, 45, 0);
+    this.app.root.addChild(light);
+
+    return light;
+  }
+
+  enableMouseRotation(canvas) {
+    if (!this.entities.camera) {
+      console.warn('No camera to rotate.');
+      return;
+    }
+
+    const camera = this.entities.camera;
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    canvas.addEventListener('mouseout', () => {
+      isDragging = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      const rot = camera.getEulerAngles();
+      const newX = rot.x - dy * 0.25;
+      const newY = rot.y - dx * 0.25;
+      camera.setEulerAngles(newX, newY, 0);
+    });
+  }
+}
+
+window.PlayCanvasHelper = PlayCanvasHelper;
