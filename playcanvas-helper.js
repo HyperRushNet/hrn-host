@@ -29,20 +29,14 @@ class PlayCanvasHelper {
     this.physicsObjects = [];
 
     if (this.world) {
-      this.accumulator = 0;
-      this.fixedTimeStep = 1 / 60;
-
       this.app.on('update', dt => {
-        this.accumulator += dt;
-        while (this.accumulator >= this.fixedTimeStep) {
-          this.world.step(this.fixedTimeStep, this.fixedTimeStep, 10);
-          this.accumulator -= this.fixedTimeStep;
-        }
+        const fixedTimeStep = 1/60;
+        this.world.step(fixedTimeStep);
 
-        for (const entry of this.physicsObjects) {
-          const { entity, body } = entry;
+        for (const { entity, body } of this.physicsObjects) {
           const p = body.position;
           entity.setPosition(p.x, p.y, p.z);
+
           const q = body.quaternion;
           entity.setRotation(q.x, q.y, q.z, q.w);
         }
@@ -54,18 +48,136 @@ class PlayCanvasHelper {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
-    this.world.solver.iterations = 20;
-    this.world.solver.tolerance = 0.001;
-    this.world.allowSleep = true;
+    this.world.solver.iterations = 10;
 
     this.physicsMaterial = new CANNON.Material("defaultMaterial");
     const contactMaterial = new CANNON.ContactMaterial(this.physicsMaterial, this.physicsMaterial, {
-      friction: 0.5,
-      restitution: 0.1,
-      contactEquationStiffness: 1e7,
-      contactEquationRelaxation: 3,
+      friction: 0.4,
+      restitution: 0.3,
     });
     this.world.addContactMaterial(contactMaterial);
+  }
+
+  // Maak een custom box mesh met vlakke normals (flat shading)
+  createFlatBoxMesh(size) {
+    const app = this.app;
+    const halfSize = size.map(s => s / 2);
+
+    // Vertices per vlak, elke vlak heeft eigen 4 vertices (geen sharing)
+    const positions = [
+      // Front face
+      -halfSize[0], -halfSize[1],  halfSize[2],
+       halfSize[0], -halfSize[1],  halfSize[2],
+       halfSize[0],  halfSize[1],  halfSize[2],
+      -halfSize[0],  halfSize[1],  halfSize[2],
+
+      // Back face
+       halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0],  halfSize[1], -halfSize[2],
+       halfSize[0],  halfSize[1], -halfSize[2],
+
+      // Left face
+      -halfSize[0], -halfSize[1], -halfSize[2],
+      -halfSize[0], -halfSize[1],  halfSize[2],
+      -halfSize[0],  halfSize[1],  halfSize[2],
+      -halfSize[0],  halfSize[1], -halfSize[2],
+
+      // Right face
+       halfSize[0], -halfSize[1],  halfSize[2],
+       halfSize[0], -halfSize[1], -halfSize[2],
+       halfSize[0],  halfSize[1], -halfSize[2],
+       halfSize[0],  halfSize[1],  halfSize[2],
+
+      // Top face
+      -halfSize[0],  halfSize[1],  halfSize[2],
+       halfSize[0],  halfSize[1],  halfSize[2],
+       halfSize[0],  halfSize[1], -halfSize[2],
+      -halfSize[0],  halfSize[1], -halfSize[2],
+
+      // Bottom face
+      -halfSize[0], -halfSize[1], -halfSize[2],
+       halfSize[0], -halfSize[1], -halfSize[2],
+       halfSize[0], -halfSize[1],  halfSize[2],
+      -halfSize[0], -halfSize[1],  halfSize[2],
+    ];
+
+    // Vlakke normals, per vlak 4x dezelfde normale
+    const normals = [
+      // Front
+      0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+      // Back
+      0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+      // Left
+      -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
+      // Right
+      1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+      // Top
+      0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0,
+      // Bottom
+      0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+    ];
+
+    // UV coords per vertex voor hele vlak
+    const uvs = [
+      // Front
+      0,0, 1,0, 1,1, 0,1,
+      // Back
+      0,0, 1,0, 1,1, 0,1,
+      // Left
+      0,0, 1,0, 1,1, 0,1,
+      // Right
+      0,0, 1,0, 1,1, 0,1,
+      // Top
+      0,0, 1,0, 1,1, 0,1,
+      // Bottom
+      0,0, 1,0, 1,1, 0,1,
+    ];
+
+    // Index buffer (2 triangles per vlak)
+    const indices = [
+      0,1,2, 0,2,3,         // Front
+      4,5,6, 4,6,7,         // Back
+      8,9,10, 8,10,11,      // Left
+      12,13,14, 12,14,15,   // Right
+      16,17,18, 16,18,19,   // Top
+      20,21,22, 20,22,23,   // Bottom
+    ];
+
+    const vertexFormat = new pc.VertexFormat(this.app.graphicsDevice, [
+      { semantic: pc.SEMANTIC_POSITION, components: 3, type: pc.TYPE_FLOAT32 },
+      { semantic: pc.SEMANTIC_NORMAL, components: 3, type: pc.TYPE_FLOAT32 },
+      { semantic: pc.SEMANTIC_TEXCOORD0, components: 2, type: pc.TYPE_FLOAT32 },
+    ]);
+
+    const vertexBuffer = new pc.VertexBuffer(this.app.graphicsDevice, vertexFormat, 24);
+
+    // Data interleaved: pos(3), normal(3), uv(2) = 8 floats per vertex
+    const vertexData = new Float32Array(24 * 8);
+    for(let i=0; i<24; i++) {
+      vertexData[i*8 + 0] = positions[i*3 + 0];
+      vertexData[i*8 + 1] = positions[i*3 + 1];
+      vertexData[i*8 + 2] = positions[i*3 + 2];
+      vertexData[i*8 + 3] = normals[i*3 + 0];
+      vertexData[i*8 + 4] = normals[i*3 + 1];
+      vertexData[i*8 + 5] = normals[i*3 + 2];
+      vertexData[i*8 + 6] = uvs[i*2 + 0];
+      vertexData[i*8 + 7] = uvs[i*2 + 1];
+    }
+
+    vertexBuffer.setData(vertexData);
+
+    const indexBuffer = new pc.IndexBuffer(this.app.graphicsDevice, pc.INDEXFORMAT_UINT16, indices.length);
+    indexBuffer.setData(new Uint16Array(indices));
+
+    const mesh = new pc.Mesh();
+    mesh.vertexBuffer = vertexBuffer;
+    mesh.indexBuffer[0] = indexBuffer;
+    mesh.primitive[0].type = pc.PRIMITIVE_TRIANGLES;
+    mesh.primitive[0].base = 0;
+    mesh.primitive[0].count = indices.length;
+
+    return mesh;
   }
 
   createBox(params = {}) {
@@ -76,17 +188,34 @@ class PlayCanvasHelper {
       name = 'Box',
       mass = 1,
       textureUrl = null,
-      rotation = [0, 0, 0],
+      rotation = [0, 0, 0]
     } = params;
 
     const box = new pc.Entity(name);
-    box.addComponent("model", { type: "box" });
-    box.setLocalScale(...size);
+
+    // Vervang standaard model door custom mesh met vlakke normals
+    const mesh = this.createFlatBoxMesh(size);
+    box.addComponent('render', {
+      type: pc.RENDERSTYLE_SOLID,
+      material: null,
+      meshInstances: null
+    });
+    box.model = new pc.Model();
+    box.model.graph = box; // fake, niet belangrijk
+
+    // Gebruik MeshInstance om mesh toe te voegen
+    const material = new pc.StandardMaterial();
+    material.diffuse = new pc.Color(...color);
+    material.update();
+
+    // Maak MeshInstance
+    const meshInstance = new pc.MeshInstance(mesh, material);
+    box.meshInstances = [meshInstance];
+
     box.setPosition(...position);
     box.setEulerAngles(...rotation);
 
-    const material = new pc.StandardMaterial();
-    material.diffuse = new pc.Color(...color);
+    this.app.root.addChild(box);
 
     if (textureUrl) {
       const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
@@ -94,42 +223,32 @@ class PlayCanvasHelper {
       this.app.assets.load(textureAsset);
       textureAsset.ready(() => {
         material.diffuseMap = textureAsset.resource;
-        material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
-        material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
+        material.diffuseMapAddressU = pc.ADDRESS_CLAMP_TO_EDGE;
+        material.diffuseMapAddressV = pc.ADDRESS_CLAMP_TO_EDGE;
         material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
-        material.diffuseMapMinFilter = pc.FILTER_LINEAR;
-        material.diffuseMapMagFilter = pc.FILTER_LINEAR;
         material.update();
       });
-    } else {
-      material.update();
     }
 
-    box.model.material = material;
-    this.app.root.addChild(box);
-
     if (this.world) {
-      const halfExtents = new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2);
+      const halfExtents = new CANNON.Vec3(size[0]/2, size[1]/2, size[2]/2);
       const shape = new CANNON.Box(halfExtents);
-
-      const eulerRad = rotation.map(deg => deg * Math.PI / 180);
-      const quat = new CANNON.Quaternion();
-      quat.setFromEuler(eulerRad[0], eulerRad[1], eulerRad[2], "XYZ");
-
       const body = new CANNON.Body({
         mass,
         shape,
         position: new CANNON.Vec3(...position),
-        quaternion: quat,
+        quaternion: new CANNON.Quaternion().setFromEuler(
+          rotation[0] * Math.PI / 180,
+          rotation[1] * Math.PI / 180,
+          rotation[2] * Math.PI / 180,
+          "XYZ"
+        ),
         material: this.physicsMaterial,
         linearDamping: 0.05,
         angularDamping: 0.05,
-        allowSleep: true,
-        sleepSpeedLimit: 0.1,
-        sleepTimeLimit: 1,
       });
-
       this.world.addBody(body);
+
       this.physicsObjects.push({ entity: box, body });
     }
 
@@ -137,16 +256,9 @@ class PlayCanvasHelper {
   }
 
   createPlane(params = {}) {
-    const {
-      position = [0, 0, 0],
-      rotation = [0, 0, 0],
-      size = [10, 10],
-      color = [0.2, 0.2, 0.2],
-      name = 'Plane',
-    } = params;
-
+    const { position = [0, 0, 0], rotation = [0, 0, 0], size = [10, 10], color = [0.2, 0.2, 0.2], name = 'Plane' } = params;
     const plane = new pc.Entity(name);
-    plane.addComponent("model", { type: "box" });
+    plane.addComponent("model", { type: "box" }); // dunne box als vloer
     plane.setLocalScale(size[0], 0.1, size[1]);
     plane.setPosition(...position);
     plane.setEulerAngles(...rotation);
@@ -159,15 +271,20 @@ class PlayCanvasHelper {
     this.app.root.addChild(plane);
 
     if (this.world) {
-      const shape = new CANNON.Box(new CANNON.Vec3(size[0] / 2, 0.05, size[1] / 2));
+      const shape = new CANNON.Box(new CANNON.Vec3(size[0]/2, 0.05, size[1]/2));
       const body = new CANNON.Body({
         mass: 0,
         shape,
         position: new CANNON.Vec3(...position),
-        quaternion: new CANNON.Quaternion().setFromEuler(...rotation.map(v => v * Math.PI / 180)),
+        quaternion: new CANNON.Quaternion().setFromEuler(
+          rotation[0] * Math.PI / 180,
+          rotation[1] * Math.PI / 180,
+          rotation[2] * Math.PI / 180
+        ),
         material: this.physicsMaterial,
       });
       this.world.addBody(body);
+
       this.physicsObjects.push({ entity: plane, body });
     }
 
@@ -193,6 +310,9 @@ class PlayCanvasHelper {
       color: new pc.Color(...color),
       intensity,
       castShadows: true,
+      shadowBias: 0.05,
+      shadowDistance: 50,
+      normalOffsetBias: 0.01
     });
     light.setPosition(...position);
     light.setEulerAngles(45, 45, 0);
