@@ -52,7 +52,7 @@ class PlayCanvasHelper {
 
   initPhysics() {
     this.world = new CANNON.World();
-    this.world.gravity.set(0, -9.82, 0);
+    this.world.gravity.set(0, -7.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
     this.world.solver.iterations = 20;
     this.world.solver.tolerance = 0.001;
