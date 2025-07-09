@@ -14,7 +14,9 @@ class PlayCanvasHelper {
 
     this.entities = {};
 
-    // Init physics wereld als CANNON globaal bestaat
+    this.physicsObjects = [];
+
+    // Physics setup
     if (typeof CANNON !== "undefined") {
       this.initPhysics();
     }
@@ -27,23 +29,12 @@ class PlayCanvasHelper {
       this.entities.light = this.createLight(options.lightPosition || [10, 10, 10]);
     }
 
-    this.physicsObjects = [];
+    // Physics timing accumulator for fixed timestep
+    this._accumulator = 0;
+    this._fixedTimeStep = 1 / 60;
 
     if (this.world) {
-      this.app.on('update', dt => {
-        const fixedTimeStep = 1 / 60;
-        this.world.step(fixedTimeStep);
-
-        // Sync physics bodies met PlayCanvas entities
-        for (const entry of this.physicsObjects) {
-          const { entity, body } = entry;
-          const p = body.position;
-          entity.setPosition(p.x, p.y, p.z);
-
-          const q = body.quaternion;
-          entity.setRotation(q.x, q.y, q.z, q.w);
-        }
-      });
+      this.app.on('update', (dt) => this._updatePhysics(dt));
     }
   }
 
@@ -61,6 +52,28 @@ class PlayCanvasHelper {
     this.world.addContactMaterial(contactMaterial);
   }
 
+  _updatePhysics(dt) {
+    // Accumulate dt and step physics fixed time steps
+    this._accumulator += dt;
+    const maxSteps = 5;  // Avoid spiral of death
+    let steps = 0;
+
+    while (this._accumulator >= this._fixedTimeStep && steps < maxSteps) {
+      this.world.step(this._fixedTimeStep);
+      this._accumulator -= this._fixedTimeStep;
+      steps++;
+    }
+
+    // Sync positions & rotations once per frame (after stepping physics)
+    for (const { entity, body } of this.physicsObjects) {
+      const p = body.position;
+      entity.setPosition(p.x, p.y, p.z);
+
+      const q = body.quaternion;
+      entity.setRotation(q.x, q.y, q.z, q.w);
+    }
+  }
+
   createBox(params = {}) {
     const {
       position = [0, 0, 0],
@@ -76,23 +89,32 @@ class PlayCanvasHelper {
     box.setLocalScale(...size);
     box.setPosition(...position);
 
-    // Maak nieuw materiaal aan
     const material = new pc.StandardMaterial();
     material.diffuse = new pc.Color(...color);
 
     if (textureUrl) {
-      // Laad de texture async via asset
-      const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
-      this.app.assets.add(textureAsset);
-      this.app.assets.load(textureAsset);
+      if (!this._textureCache) this._textureCache = new Map();
 
-      textureAsset.ready(() => {
-        material.diffuseMap = textureAsset.resource;
-        material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);  // Herhaling over boxvlak
+      if (this._textureCache.has(textureUrl)) {
+        material.diffuseMap = this._textureCache.get(textureUrl);
+        material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
         material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
         material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
         material.update();
-      });
+      } else {
+        const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
+        this.app.assets.add(textureAsset);
+        this.app.assets.load(textureAsset);
+
+        textureAsset.ready(() => {
+          this._textureCache.set(textureUrl, textureAsset.resource);
+          material.diffuseMap = textureAsset.resource;
+          material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
+          material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
+          material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
+          material.update();
+        });
+      }
     } else {
       material.update();
     }
@@ -109,7 +131,7 @@ class PlayCanvasHelper {
         shape,
         position: new CANNON.Vec3(...position),
         material: this.physicsMaterial,
-        linearDamping: 0.01,    // Lagere demping voor natuurlijker bewegen
+        linearDamping: 0.01,    // Lagere damping = natuurlijker
         angularDamping: 0.01,
         allowSleep: true,
         sleepSpeedLimit: 0.1,
@@ -131,6 +153,7 @@ class PlayCanvasHelper {
       color = [0.2, 0.2, 0.2],
       name = 'Plane'
     } = params;
+
     const plane = new pc.Entity(name);
     plane.addComponent("model", { type: "box" }); // dunne box als vloer
     plane.setLocalScale(size[0], 0.1, size[1]);
