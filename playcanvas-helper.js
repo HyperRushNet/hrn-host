@@ -14,7 +14,6 @@ class PlayCanvasHelper {
 
     this.entities = {};
 
-    // Init physics wereld als CANNON globaal bestaat
     if (typeof CANNON !== "undefined") {
       this.initPhysics();
     }
@@ -33,7 +32,6 @@ class PlayCanvasHelper {
       this.app.on('update', dt => {
         this.world.step(dt);
 
-        // Sync physics bodies met PlayCanvas entities
         for (const entry of this.physicsObjects) {
           const { entity, body } = entry;
           const p = body.position;
@@ -61,14 +59,32 @@ class PlayCanvasHelper {
   }
 
   createBox(params = {}) {
-    const { position = [0, 0, 0], size = [1, 1, 1], color = [1, 1, 1], name = 'Box', mass = 1 } = params;
+    const {
+      position = [0, 0, 0],
+      size = [1, 1, 1],
+      color = [1, 1, 1],
+      name = 'Box',
+      mass = 1,
+      texture = null,
+      rotation = null
+    } = params;
+
     const box = new pc.Entity(name);
     box.addComponent("model", { type: "box" });
     box.setLocalScale(...size);
     box.setPosition(...position);
 
+    if (rotation) {
+      box.setEulerAngles(...rotation.map(r => r * 180 / Math.PI));
+    }
+
     const material = new pc.StandardMaterial();
-    material.diffuse = new pc.Color(...color);
+    if (texture) {
+      material.diffuseMap = texture;
+      material.diffuseMapTiling.set(1, 1);
+    } else {
+      material.diffuse = new pc.Color(...color);
+    }
     material.update();
     box.model.material = material;
 
@@ -84,7 +100,6 @@ class PlayCanvasHelper {
         material: this.physicsMaterial,
       });
       this.world.addBody(body);
-
       this.physicsObjects.push({ entity: box, body });
     }
 
@@ -94,7 +109,7 @@ class PlayCanvasHelper {
   createPlane(params = {}) {
     const { position = [0, 0, 0], rotation = [0, 0, 0], size = [10, 10], color = [0.2, 0.2, 0.2], name = 'Plane' } = params;
     const plane = new pc.Entity(name);
-    plane.addComponent("model", { type: "box" }); // dunne box als vloer
+    plane.addComponent("model", { type: "box" });
     plane.setLocalScale(size[0], 0.1, size[1]);
     plane.setPosition(...position);
     plane.setEulerAngles(...rotation);
@@ -121,6 +136,16 @@ class PlayCanvasHelper {
     }
 
     return plane;
+  }
+
+  loadTexture(url) {
+    return new Promise((resolve, reject) => {
+      const asset = new pc.Asset('texture', 'texture', { url });
+      this.app.assets.add(asset);
+      asset.ready(() => resolve(asset.resource));
+      asset.on('error', reject);
+      this.app.assets.load(asset);
+    });
   }
 
   createCamera(position = [0, 0, 3], lookAt = [0, 0, 0]) {
@@ -178,10 +203,8 @@ class PlayCanvasHelper {
       const dy = e.clientY - lastPos.y;
       lastPos = { x: e.clientX, y: e.clientY };
 
-      yaw -= dx * sensitivity;  // om correcte richting te krijgen
+      yaw -= dx * sensitivity;
       pitch -= dy * sensitivity;
-
-      // Geen limiet op pitch/yaw, rotatie kan onbeperkt
 
       const quatYaw = new pc.Quat();
       quatYaw.setFromAxisAngle(pc.Vec3.UP, yaw * (180/Math.PI));
