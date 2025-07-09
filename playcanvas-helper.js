@@ -14,7 +14,6 @@ class PlayCanvasHelper {
 
     this.entities = {};
 
-    // Init physics world if CANNON is available
     if (typeof CANNON !== "undefined") {
       this.initPhysics();
     }
@@ -30,16 +29,20 @@ class PlayCanvasHelper {
     this.physicsObjects = [];
 
     if (this.world) {
-      this.app.on('update', dt => {
-        const fixedTimeStep = 1 / 60;
-        this.world.step(fixedTimeStep);
+      this.accumulator = 0;
+      this.fixedTimeStep = 1 / 60;
 
-        // Sync physics bodies with PlayCanvas entities
+      this.app.on('update', dt => {
+        this.accumulator += dt;
+        while (this.accumulator >= this.fixedTimeStep) {
+          this.world.step(this.fixedTimeStep, this.fixedTimeStep, 10);
+          this.accumulator -= this.fixedTimeStep;
+        }
+
         for (const entry of this.physicsObjects) {
           const { entity, body } = entry;
           const p = body.position;
           entity.setPosition(p.x, p.y, p.z);
-
           const q = body.quaternion;
           entity.setRotation(q.x, q.y, q.z, q.w);
         }
@@ -51,12 +54,16 @@ class PlayCanvasHelper {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
-    this.world.solver.iterations = 20; // meer iteraties voor stabiliteit
+    this.world.solver.iterations = 20;
+    this.world.solver.tolerance = 0.001;
+    this.world.allowSleep = true;
 
     this.physicsMaterial = new CANNON.Material("defaultMaterial");
     const contactMaterial = new CANNON.ContactMaterial(this.physicsMaterial, this.physicsMaterial, {
       friction: 0.5,
-      restitution: 0.2,
+      restitution: 0.1,
+      contactEquationStiffness: 1e7,
+      contactEquationRelaxation: 3,
     });
     this.world.addContactMaterial(contactMaterial);
   }
@@ -69,7 +76,7 @@ class PlayCanvasHelper {
       name = 'Box',
       mass = 1,
       textureUrl = null,
-      rotation = [0, 0, 0] // degrees
+      rotation = [0, 0, 0],
     } = params;
 
     const box = new pc.Entity(name);
@@ -78,7 +85,6 @@ class PlayCanvasHelper {
     box.setPosition(...position);
     box.setEulerAngles(...rotation);
 
-    // Create material
     const material = new pc.StandardMaterial();
     material.diffuse = new pc.Color(...color);
 
@@ -88,10 +94,11 @@ class PlayCanvasHelper {
       this.app.assets.load(textureAsset);
       textureAsset.ready(() => {
         material.diffuseMap = textureAsset.resource;
-        // Tiling: pas aan op grootte van box
-        material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
         material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
         material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
+        material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
+        material.diffuseMapMinFilter = pc.FILTER_LINEAR;
+        material.diffuseMapMagFilter = pc.FILTER_LINEAR;
         material.update();
       });
     } else {
@@ -99,14 +106,12 @@ class PlayCanvasHelper {
     }
 
     box.model.material = material;
-
     this.app.root.addChild(box);
 
     if (this.world) {
       const halfExtents = new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2);
       const shape = new CANNON.Box(halfExtents);
 
-      // Convert rotation degrees to quaternion
       const eulerRad = rotation.map(deg => deg * Math.PI / 180);
       const quat = new CANNON.Quaternion();
       quat.setFromEuler(eulerRad[0], eulerRad[1], eulerRad[2], "XYZ");
@@ -117,8 +122,11 @@ class PlayCanvasHelper {
         position: new CANNON.Vec3(...position),
         quaternion: quat,
         material: this.physicsMaterial,
-        linearDamping: 0.01,  // reduce jitter
-        angularDamping: 0.01,
+        linearDamping: 0.05,
+        angularDamping: 0.05,
+        allowSleep: true,
+        sleepSpeedLimit: 0.1,
+        sleepTimeLimit: 1,
       });
 
       this.world.addBody(body);
@@ -131,14 +139,14 @@ class PlayCanvasHelper {
   createPlane(params = {}) {
     const {
       position = [0, 0, 0],
-      rotation = [0, 0, 0], // degrees
+      rotation = [0, 0, 0],
       size = [10, 10],
       color = [0.2, 0.2, 0.2],
-      name = 'Plane'
+      name = 'Plane',
     } = params;
 
     const plane = new pc.Entity(name);
-    plane.addComponent("model", { type: "box" }); // thin box as floor
+    plane.addComponent("model", { type: "box" });
     plane.setLocalScale(size[0], 0.1, size[1]);
     plane.setPosition(...position);
     plane.setEulerAngles(...rotation);
@@ -152,19 +160,13 @@ class PlayCanvasHelper {
 
     if (this.world) {
       const shape = new CANNON.Box(new CANNON.Vec3(size[0] / 2, 0.05, size[1] / 2));
-
-      const eulerRad = rotation.map(deg => deg * Math.PI / 180);
-      const quat = new CANNON.Quaternion();
-      quat.setFromEuler(eulerRad[0], eulerRad[1], eulerRad[2], "XYZ");
-
       const body = new CANNON.Body({
         mass: 0,
         shape,
         position: new CANNON.Vec3(...position),
-        quaternion: quat,
+        quaternion: new CANNON.Quaternion().setFromEuler(...rotation.map(v => v * Math.PI / 180)),
         material: this.physicsMaterial,
       });
-
       this.world.addBody(body);
       this.physicsObjects.push({ entity: plane, body });
     }
