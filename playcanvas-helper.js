@@ -181,79 +181,77 @@ class PlayCanvasHelper {
   }
 
   createBox(params = {}) {
-    const {
-      position = [0, 0, 0],
-      size = [1, 1, 1],
-      color = [1, 1, 1],
-      name = 'Box',
-      mass = 1,
-      textureUrl = null,
-      rotation = [0, 0, 0]
-    } = params;
+  const {
+    position = [0, 0, 0],
+    size = [1, 1, 1],
+    color = [1, 1, 1],
+    name = 'Box',
+    mass = 1,
+    textureUrl = null,
+    rotation = [0, 0, 0]
+  } = params;
 
-    const box = new pc.Entity(name);
+  const box = new pc.Entity(name);
 
-    // Vervang standaard model door custom mesh met vlakke normals
-    const mesh = this.createFlatBoxMesh(size);
-    box.addComponent('render', {
-      type: pc.RENDERSTYLE_SOLID,
-      material: null,
-      meshInstances: null
+  // Maak materiaal eerst
+  const material = new pc.StandardMaterial();
+  material.diffuse = new pc.Color(...color);
+  material.update();
+
+  // Bouw mesh en instance
+  const mesh = this.createFlatBoxMesh(size);
+  const meshInstance = new pc.MeshInstance(mesh, material);
+
+  // Render component toevoegen zonder type
+  box.addComponent('render');
+  box.render.meshInstances = [meshInstance];
+
+  // Transform
+  box.setPosition(...position);
+  box.setEulerAngles(...rotation);
+
+  this.app.root.addChild(box);
+
+  // Laad texture (async)
+  if (textureUrl) {
+    const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
+    this.app.assets.add(textureAsset);
+    this.app.assets.load(textureAsset);
+    textureAsset.ready(() => {
+      material.diffuseMap = textureAsset.resource;
+      material.diffuseMapAddressU = pc.ADDRESS_CLAMP_TO_EDGE;
+      material.diffuseMapAddressV = pc.ADDRESS_CLAMP_TO_EDGE;
+      material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
+      material.update();
     });
-    box.model = new pc.Model();
-    box.model.graph = box; // fake, niet belangrijk
-
-    // Gebruik MeshInstance om mesh toe te voegen
-    const material = new pc.StandardMaterial();
-    material.diffuse = new pc.Color(...color);
-    material.update();
-
-    // Maak MeshInstance
-    const meshInstance = new pc.MeshInstance(mesh, material);
-    box.meshInstances = [meshInstance];
-
-    box.setPosition(...position);
-    box.setEulerAngles(...rotation);
-
-    this.app.root.addChild(box);
-
-    if (textureUrl) {
-      const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
-      this.app.assets.add(textureAsset);
-      this.app.assets.load(textureAsset);
-      textureAsset.ready(() => {
-        material.diffuseMap = textureAsset.resource;
-        material.diffuseMapAddressU = pc.ADDRESS_CLAMP_TO_EDGE;
-        material.diffuseMapAddressV = pc.ADDRESS_CLAMP_TO_EDGE;
-        material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
-        material.update();
-      });
-    }
-
-    if (this.world) {
-      const halfExtents = new CANNON.Vec3(size[0]/2, size[1]/2, size[2]/2);
-      const shape = new CANNON.Box(halfExtents);
-      const body = new CANNON.Body({
-        mass,
-        shape,
-        position: new CANNON.Vec3(...position),
-        quaternion: new CANNON.Quaternion().setFromEuler(
-          rotation[0] * Math.PI / 180,
-          rotation[1] * Math.PI / 180,
-          rotation[2] * Math.PI / 180,
-          "XYZ"
-        ),
-        material: this.physicsMaterial,
-        linearDamping: 0.05,
-        angularDamping: 0.05,
-      });
-      this.world.addBody(body);
-
-      this.physicsObjects.push({ entity: box, body });
-    }
-
-    return box;
   }
+
+  // Physics
+  if (this.world) {
+    const halfExtents = new CANNON.Vec3(size[0]/2, size[1]/2, size[2]/2);
+    const shape = new CANNON.Box(halfExtents);
+    const body = new CANNON.Body({
+      mass,
+      shape,
+      position: new CANNON.Vec3(...position),
+      quaternion: new CANNON.Quaternion().setFromEuler(
+        rotation[0] * Math.PI / 180,
+        rotation[1] * Math.PI / 180,
+        rotation[2] * Math.PI / 180,
+        'XYZ'
+      ),
+      material: this.physicsMaterial,
+      linearDamping: 0.05,
+      angularDamping: 0.05,
+    });
+    this.world.addBody(body);
+
+    this.physicsObjects.push({ entity: box, body });
+  }
+
+  return box;
+}
+
 
   createPlane(params = {}) {
     const { position = [0, 0, 0], rotation = [0, 0, 0], size = [10, 10], color = [0.2, 0.2, 0.2], name = 'Plane' } = params;
