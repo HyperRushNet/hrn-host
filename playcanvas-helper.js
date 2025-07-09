@@ -14,9 +14,6 @@ class PlayCanvasHelper {
 
     this.entities = {};
 
-    this.physicsObjects = [];
-
-    // Physics setup
     if (typeof CANNON !== "undefined") {
       this.initPhysics();
     }
@@ -29,12 +26,22 @@ class PlayCanvasHelper {
       this.entities.light = this.createLight(options.lightPosition || [10, 10, 10]);
     }
 
-    // Physics timing accumulator for fixed timestep
-    this._accumulator = 0;
-    this._fixedTimeStep = 1 / 60;
+    this.physicsObjects = [];
 
     if (this.world) {
-      this.app.on('update', (dt) => this._updatePhysics(dt));
+      this.app.on('update', dt => {
+        const fixedTimeStep = 1 / 60;
+        this.world.step(fixedTimeStep);
+
+        for (const entry of this.physicsObjects) {
+          const { entity, body } = entry;
+          const p = body.position;
+          entity.setPosition(p.x, p.y, p.z);
+
+          const q = body.quaternion;
+          entity.setRotation(q.x, q.y, q.z, q.w);
+        }
+      });
     }
   }
 
@@ -42,7 +49,8 @@ class PlayCanvasHelper {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
-    this.world.solver.iterations = 10;
+    this.world.solver.iterations = 20; // verhoog solver iteraties voor stabielere simulatie
+    this.world.allowSleep = true; // activeer slapen voor performance en stabiliteit
 
     this.physicsMaterial = new CANNON.Material("defaultMaterial");
     const contactMaterial = new CANNON.ContactMaterial(this.physicsMaterial, this.physicsMaterial, {
@@ -50,28 +58,6 @@ class PlayCanvasHelper {
       restitution: 0.3,
     });
     this.world.addContactMaterial(contactMaterial);
-  }
-
-  _updatePhysics(dt) {
-    // Accumulate dt and step physics fixed time steps
-    this._accumulator += dt;
-    const maxSteps = 5;  // Avoid spiral of death
-    let steps = 0;
-
-    while (this._accumulator >= this._fixedTimeStep && steps < maxSteps) {
-      this.world.step(this._fixedTimeStep);
-      this._accumulator -= this._fixedTimeStep;
-      steps++;
-    }
-
-    // Sync positions & rotations once per frame (after stepping physics)
-    for (const { entity, body } of this.physicsObjects) {
-      const p = body.position;
-      entity.setPosition(p.x, p.y, p.z);
-
-      const q = body.quaternion;
-      entity.setRotation(q.x, q.y, q.z, q.w);
-    }
   }
 
   createBox(params = {}) {
@@ -93,34 +79,23 @@ class PlayCanvasHelper {
     material.diffuse = new pc.Color(...color);
 
     if (textureUrl) {
-      if (!this._textureCache) this._textureCache = new Map();
+      const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
+      this.app.assets.add(textureAsset);
+      this.app.assets.load(textureAsset);
 
-      if (this._textureCache.has(textureUrl)) {
-        material.diffuseMap = this._textureCache.get(textureUrl);
+      textureAsset.ready(() => {
+        material.diffuseMap = textureAsset.resource;
+        // Herhaling van texture aangepast aan boxgrootte voor nette textuur zonder rimpels
         material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
         material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
         material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
         material.update();
-      } else {
-        const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
-        this.app.assets.add(textureAsset);
-        this.app.assets.load(textureAsset);
-
-        textureAsset.ready(() => {
-          this._textureCache.set(textureUrl, textureAsset.resource);
-          material.diffuseMap = textureAsset.resource;
-          material.diffuseMapTiling = new pc.Vec2(size[0], size[2]);
-          material.diffuseMapAddressU = pc.ADDRESS_REPEAT;
-          material.diffuseMapAddressV = pc.ADDRESS_REPEAT;
-          material.update();
-        });
-      }
+      });
     } else {
       material.update();
     }
 
     box.model.material = material;
-
     this.app.root.addChild(box);
 
     if (this.world) {
@@ -131,11 +106,11 @@ class PlayCanvasHelper {
         shape,
         position: new CANNON.Vec3(...position),
         material: this.physicsMaterial,
-        linearDamping: 0.01,    // Lagere damping = natuurlijker
-        angularDamping: 0.01,
+        linearDamping: 0.05,  // iets hogere demping tegen jitter
+        angularDamping: 0.05,
         allowSleep: true,
         sleepSpeedLimit: 0.1,
-        sleepTimeLimit: 1
+        sleepTimeLimit: 1,
       });
       this.world.addBody(body);
 
@@ -155,9 +130,12 @@ class PlayCanvasHelper {
     } = params;
 
     const plane = new pc.Entity(name);
-    plane.addComponent("model", { type: "box" }); // dunne box als vloer
-    plane.setLocalScale(size[0], 0.1, size[1]);
-    plane.setPosition(...position);
+    plane.addComponent("model", { type: "box" });
+
+    // Dunner vlak zodat physics correct is en geen z-fighting ontstaat
+    plane.setLocalScale(size[0], 0.05, size[1]);
+    // Kleine offset in Y zodat boxen niet exact op vloer liggen (voorkomt jitter)
+    plane.setPosition(position[0], position[1] - 0.05, position[2]);
     plane.setEulerAngles(...rotation);
 
     const material = new pc.StandardMaterial();
@@ -168,18 +146,18 @@ class PlayCanvasHelper {
     this.app.root.addChild(plane);
 
     if (this.world) {
-      const shape = new CANNON.Box(new CANNON.Vec3(size[0] / 2, 0.05, size[1] / 2));
+      const shape = new CANNON.Box(new CANNON.Vec3(size[0] / 2, 0.025, size[1] / 2));
       const body = new CANNON.Body({
         mass: 0,
         shape,
-        position: new CANNON.Vec3(...position),
+        position: new CANNON.Vec3(position[0], position[1] - 0.05, position[2]),
         quaternion: new CANNON.Quaternion().setFromEuler(...rotation.map(v => v * Math.PI / 180)),
         material: this.physicsMaterial,
-        linearDamping: 0.01,
-        angularDamping: 0.01,
+        linearDamping: 0.05,
+        angularDamping: 0.05,
         allowSleep: true,
         sleepSpeedLimit: 0.1,
-        sleepTimeLimit: 1
+        sleepTimeLimit: 1,
       });
       this.world.addBody(body);
 
