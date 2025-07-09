@@ -324,4 +324,46 @@ class PlayCanvasHelper {
     this.app.root.addChild(light);
     return light;
   }
+  enableMouseRotation(entity, options = {}) {
+  const sensitivity = options.sensitivity || 0.3;
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  let yaw = 0;
+  let pitch = 0;
+
+  const canvas = this.app.graphicsDevice.canvas;
+
+  canvas.addEventListener('mousedown', (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    yaw -= dx * sensitivity;
+    pitch -= dy * sensitivity;
+
+    pitch = Math.max(-89, Math.min(89, pitch)); // limiteren
+
+    const quatYaw = new pc.Quat().setFromEulerAngles(0, yaw, 0);
+    const quatPitch = new pc.Quat().setFromEulerAngles(pitch, 0, 0);
+
+    const final = new pc.Quat();
+    final.mul2(quatYaw, quatPitch);
+    entity.setRotation(final);
+  });
+}
+
 }
