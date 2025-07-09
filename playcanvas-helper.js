@@ -193,26 +193,33 @@ class PlayCanvasHelper {
 
   const box = new pc.Entity(name);
 
-  // Maak materiaal eerst
+  // Materiaal aanmaken
   const material = new pc.StandardMaterial();
   material.diffuse = new pc.Color(...color);
   material.update();
 
-  // Bouw mesh en instance
+  // Flat mesh aanmaken
   const mesh = this.createFlatBoxMesh(size);
   const meshInstance = new pc.MeshInstance(mesh, material);
+  meshInstance.node = box;
+  meshInstance.layer = pc.LAYER_WORLD;
 
-  // Render component toevoegen zonder type
+  // Model-wrapper gebruiken (nodig voor render pipeline integratie)
+  const model = new pc.Model();
+  model.graph = box;
+  model.meshInstances = [meshInstance];
+
+  // Render component met correct model
   box.addComponent('render');
-  box.render.meshInstances = [meshInstance];
+  box.render.model = model;
 
-  // Transform
+  // Positie en rotatie
   box.setPosition(...position);
   box.setEulerAngles(...rotation);
 
   this.app.root.addChild(box);
 
-  // Laad texture (async)
+  // Laad texture async (optioneel)
   if (textureUrl) {
     const textureAsset = new pc.Asset('texture', 'texture', { url: textureUrl });
     this.app.assets.add(textureAsset);
@@ -226,9 +233,9 @@ class PlayCanvasHelper {
     });
   }
 
-  // Physics
+  // Physics body aanmaken
   if (this.world) {
-    const halfExtents = new CANNON.Vec3(size[0]/2, size[1]/2, size[2]/2);
+    const halfExtents = new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2);
     const shape = new CANNON.Box(halfExtents);
     const body = new CANNON.Body({
       mass,
@@ -245,12 +252,12 @@ class PlayCanvasHelper {
       angularDamping: 0.05,
     });
     this.world.addBody(body);
-
     this.physicsObjects.push({ entity: box, body });
   }
 
   return box;
 }
+
 
 
   createPlane(params = {}) {
