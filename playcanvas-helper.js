@@ -13,6 +13,7 @@ class PlayCanvasHelper {
     this.app.scene.toneMapping = pc.TONEMAP_ACES;
 
     this.entities = {};
+    this.physicsObjects = [];
 
     if (typeof CANNON !== "undefined") {
       this.initPhysics();
@@ -25,8 +26,6 @@ class PlayCanvasHelper {
     if (options.initLight !== false) {
       this.entities.light = this.createLight(options.lightPosition || [10, 10, 10]);
     }
-
-    this.physicsObjects = [];
 
     if (this.world) {
       this.app.on('update', dt => {
@@ -73,8 +72,6 @@ class PlayCanvasHelper {
 
     const material = new pc.StandardMaterial();
     material.diffuse = new pc.Color(color[0], color[1], color[2]);
-    material.update();
-
     if (textureUrl) {
       const texture = new pc.Texture(this.app.graphicsDevice);
       const img = new Image();
@@ -84,6 +81,8 @@ class PlayCanvasHelper {
         material.update();
       };
       img.src = textureUrl;
+    } else {
+      material.update();
     }
 
     box.addComponent('render', {
@@ -117,13 +116,26 @@ class PlayCanvasHelper {
       name = 'Plane',
       rotation = [-90, 0, 0],
       mass = 0,
+      textureUrl = null,
     } = params;
 
     const plane = new pc.Entity(name);
 
     const material = new pc.StandardMaterial();
     material.diffuse = new pc.Color(color[0], color[1], color[2]);
-    material.update();
+
+    if (textureUrl) {
+      const texture = new pc.Texture(this.app.graphicsDevice);
+      const img = new Image();
+      img.onload = () => {
+        texture.setSource(img);
+        material.diffuseMap = texture;
+        material.update();
+      };
+      img.src = textureUrl;
+    } else {
+      material.update();
+    }
 
     plane.addComponent('render', {
       type: 'plane',
@@ -212,8 +224,10 @@ class PlayCanvasHelper {
       lastY = e.clientY;
 
       const rot = camera.getEulerAngles();
-      const newX = rot.x - dy * 0.25;
-      const newY = rot.y - dx * 0.25;
+      let newX = rot.x - dy * 0.25;
+      let newY = rot.y - dx * 0.25;
+      // clamp X so camera doesn't flip upside down
+      newX = Math.min(85, Math.max(-85, newX));
       camera.setEulerAngles(newX, newY, 0);
     });
   }
