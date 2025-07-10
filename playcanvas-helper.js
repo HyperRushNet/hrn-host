@@ -1,3 +1,15 @@
+// Functie om scripts dynamisch te laden en te wachten tot ze klaar zijn
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Script ${src} kon niet geladen worden`));
+    document.head.appendChild(script);
+  });
+}
+
+// Je PlayCanvasHelper class, precies zoals jij gaf
 class PlayCanvasHelper {
   constructor(canvas, options = {}) {
     this.app = new pc.Application(canvas, {
@@ -200,3 +212,28 @@ class PlayCanvasHelper {
     return light;
   }
 }
+
+// Nu laden we dynamisch PlayCanvas en Cannon, en dan initialiseren we PlayCanvasHelper
+(async () => {
+  try {
+    await loadScript("https://code.playcanvas.com/playcanvas-stable.min.js");
+    console.log("PlayCanvas is geladen");
+
+    await loadScript("https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js");
+    console.log("Cannon.js is geladen");
+
+    const canvas = document.getElementById("application-canvas");
+    const helper = new PlayCanvasHelper(canvas, {
+      initCamera: true,
+      initLight: true,
+      cameraPosition: [0, 5, 10],
+      lightPosition: [5, 10, 5],
+    });
+
+    helper.createPlane({ size: [10, 10], position: [0, 0, 0] });
+    helper.createBox({ position: [0, 2, 0], size: [1, 1, 1], color: [1, 0, 0] });
+
+  } catch (error) {
+    console.error("Error tijdens laden of initialisatie:", error);
+  }
+})();
