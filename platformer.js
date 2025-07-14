@@ -1,89 +1,4 @@
-// PlatformerLib.js - simpele, ruime 2D platformer lib
-
-export class Vec2 {
-  constructor(x = 0, y = 0) { this.x = x; this.y = y; }
-  add(v) { this.x += v.x; this.y += v.y; return this; }
-  sub(v) { this.x -= v.x; this.y -= v.y; return this; }
-  copy() { return new Vec2(this.x, this.y); }
-}
-
-export class Rect {
-  constructor(x=0,y=0,width=0,height=0) {
-    this.pos = new Vec2(x,y);
-    this.size = new Vec2(width,height);
-  }
-  get x() { return this.pos.x; }
-  get y() { return this.pos.y; }
-  get width() { return this.size.x; }
-  get height() { return this.size.y; }
-  set x(v) { this.pos.x = v; }
-  set y(v) { this.pos.y = v; }
-  set width(w) { this.size.x = w; }
-  set height(h) { this.size.y = h; }
-  intersects(other) {
-    return !(this.x > other.x + other.width ||
-             this.x + this.width < other.x ||
-             this.y > other.y + other.height ||
-             this.y + this.height < other.y);
-  }
-}
-
-export class Entity extends Rect {
-  constructor(x,y,w,h) {
-    super(x,y,w,h);
-    this.vel = new Vec2();
-    this.acc = new Vec2();
-    this.speed = 0;
-  }
-  update(dt) {
-    this.vel.add(this.acc);
-    this.pos.add(this.vel);
-  }
-  draw(ctx) {
-    ctx.fillStyle = '#f00';
-    ctx.fillRect(this.x, this.y, this.width, this.height);
-  }
-}
-
-export class Player extends Entity {
-  constructor(x,y,w,h,image=null) {
-    super(x,y,w,h);
-    this.jumping = false;
-    this.facing = 'right';
-    this.speed = 4;
-    this.image = image;
-  }
-  update(dt, gravity) {
-    this.acc = new Vec2(0, gravity);
-    super.update(dt);
-    if (Math.abs(this.vel.x) > 0.1) this.facing = this.vel.x > 0 ? 'right' : 'left';
-  }
-  draw(ctx) {
-    if(this.image){
-      ctx.save();
-      ctx.translate(this.x + this.width/2, this.y + this.height/2);
-      if(this.facing === 'left') ctx.scale(-1,1);
-      ctx.drawImage(this.image, -this.width/2, -this.height/2, this.width, this.height);
-      ctx.restore();
-    } else {
-      super.draw(ctx);
-    }
-  }
-}
-
-export class Platform extends Rect {
-  constructor(x,y,w,h) {
-    super(x,y,w,h);
-  }
-  draw(ctx) {
-    ctx.fillStyle = '#654321';
-    ctx.fillRect(this.x, this.y, this.width, this.height);
-    ctx.strokeStyle = '#00000000'; // transparant border
-    ctx.lineWidth = 1;
-    ctx.strokeRect(this.x, this.y, this.width, this.height);
-  }
-}
-
+// platformer.js
 export class Game {
   constructor(canvas, gravity=0.7, friction=0.8) {
     this.canvas = canvas;
@@ -92,85 +7,141 @@ export class Game {
     this.friction = friction;
     this.player = null;
     this.platforms = [];
-    this.keys = {};
-    this.epsilon = 0.1;
-    this._setupInput();
+    this.beforeDraw = null;
+  }
+  addPlayer(p) { this.player = p; }
+  addPlatform(p) { this.platforms.push(p); }
+  loop = () => {
+    if (this.beforeDraw) this.beforeDraw();
+    this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+    this.platforms.forEach(p => {
+      this.ctx.fillStyle = "#654321";
+      this.ctx.fillRect(p.x,p.y,p.w,p.h);
+    });
+    if (this.player) this.player.draw(this.ctx);
+    requestAnimationFrame(this.loop);
+  }
+  start() { this.loop(); }
+}
+
+export class Platform {
+  constructor(x,y,w,h){ this.x=x;this.y=y;this.w=w;this.h=h; }
+}
+
+export class Player {
+  constructor(x,y,w,h){
+    this.x=x; this.y=y;
+    this.w=w; this.h=h;
+    this.vel = {x:0,y:0};
+    this.onGround = false;
+    this.speed = 2.5;
+    this.jumpPower = 8;
+    this.facing = 'right';
+
+    // animatie
+    this.anim = 0;
+    this.attacking=false; this.attackT=0;
+    this.attackDur=20; this.swing=0;
   }
 
-  _setupInput(){
-    window.addEventListener('keydown', e => this.keys[e.key.toLowerCase()] = true);
-    window.addEventListener('keyup', e => this.keys[e.key.toLowerCase()] = false);
-  }
+  update(input, gravity, platforms) {
+    // beweging & gravity
+    if (input.left) { this.vel.x = -this.speed; this.facing='left'; }
+    else if (input.right) { this.vel.x = this.speed; this.facing='right'; }
+    else { this.vel.x *= 0.9; }
+    if (input.jump && this.onGround) { this.vel.y = -this.jumpPower; this.onGround=false; }
+    this.vel.y += gravity;
 
-  addPlayer(player){ this.player = player; }
-  addPlatform(platform){ this.platforms.push(platform); }
+    this.x += this.vel.x;
+    this.y += this.vel.y;
 
-  rectCollision(r1, r2) {
-    return r1.intersects(r2);
-  }
-
-  resolveCollision() {
-    const p = this.player;
-    for (const platform of this.platforms) {
-      if(this.rectCollision(p, platform)) {
-        const prevX = p.x - p.vel.x;
-        const prevY = p.y - p.vel.y;
-
-        if (prevY + p.height <= platform.y) {
-          p.y = platform.y - p.height - this.epsilon;
-          p.vel.y = 0;
-          p.jumping = false;
-        } else if (prevY >= platform.y + platform.height) {
-          p.y = platform.y + platform.height + this.epsilon;
-          p.vel.y = 0;
-        } else {
-          if (prevX + p.width <= platform.x) {
-            p.x = platform.x - p.width - this.epsilon;
-            p.vel.x = 0;
-          } else if (prevX >= platform.x + platform.width) {
-            p.x = platform.x + platform.width + this.epsilon;
-            p.vel.x = 0;
-          }
-        }
+    // platform collision
+    this.onGround = false;
+    platforms.forEach(p => {
+      if (this.x < p.x+p.w && this.x+this.w > p.x &&
+          this.y+this.h > p.y && this.y+this.h < p.y+this.vel.y+1) {
+        this.y = p.y - this.h;
+        this.vel.y = 0;
+        this.onGround = true;
       }
+    });
+
+    // animatie progress
+    this.anim += Math.abs(this.vel.x)/10;
+    if (this.attacking) {
+      this.attackT--;
+      const pr = 1 - this.attackT/this.attackDur;
+      this.swing = -Math.PI/2 + pr*(Math.PI);
+      if (this.attackT<=0) { this.attacking=false; this.swing=0; }
     }
   }
 
-  update() {
-    const p = this.player;
-    if(!p) return;
-
-    if (this.keys['arrowleft'] || this.keys['a']) {
-      p.vel.x = -p.speed;
-    } else if (this.keys['arrowright'] || this.keys['d']) {
-      p.vel.x = p.speed;
-    } else {
-      p.vel.x *= this.friction;
-      if(Math.abs(p.vel.x) < 0.1) p.vel.x = 0;
+  attack() {
+    if (!this.attacking) {
+      this.attacking = true;
+      this.attackT = this.attackDur;
     }
-    if ((this.keys['arrowup'] || this.keys['w'] || this.keys[' ']) && !p.jumping) {
-      p.vel.y = -15;
-      p.jumping = true;
+  }
+
+  draw(ctx) {
+    this.updateLoop(ctx);
+  }
+
+  updateLoop(ctx) {
+    this.update(this._input, this.gravity, this.platforms);
+    // teken
+    ctx.save();
+    // armen/benen animatie
+    const t = this.anim;
+    const armSwing = Math.sin(t*2)*4;
+    const legSwing = Math.sin(t*2)*6;
+
+    // deelboxes opslaan
+    this.hitboxes = [];
+
+    const X=this.x, Y=this.y, W=this.w, H=this.h;
+
+    // Hoofd
+    this._part(ctx, X+W*0.25, Y, W*0.5, H*0.2, "#ffe0bd","head");
+
+    // Romp
+    this._part(ctx, X+W*0.2, Y+H*0.2, W*0.6, H*0.4, "#0066cc","torso");
+
+    // Armen
+    this._part(ctx, X, Y+H*0.2+armSwing, W*0.2, H*0.3, "#cc6600","armL");
+    this._part(ctx, X+W*0.8, Y+H*0.2-armSwing, W*0.2, H*0.3, "#cc6600","armR");
+
+    // Benen
+    this._part(ctx, X+W*0.2, Y+H*0.6-legSwing, W*0.2, H*0.4, "#333","legL");
+    this._part(ctx, X+W*0.6, Y+H*0.6+legSwing, W*0.2, H*0.4, "#333","legR");
+
+    // Zwaard
+    if (this.attacking) {
+      ctx.save();
+      ctx.translate(X+W/2, Y+H*0.1);
+      if (this.facing==='left') ctx.scale(-1,1);
+      ctx.rotate(this.swing);
+      ctx.fillStyle="silver";
+      ctx.fillRect(W*0.2, -W*0.05, W*0.05, H*0.6);
+      // zwaardhitbox
+      const bx = X + W/2 + Math.cos(this.swing)*W*0.2 - W*0.025;
+      const by = Y+H*0.1 + Math.sin(this.swing)*(-W*0.05);
+      this.hitboxes.push({x:bx,y:by,w:W*0.05,h:H*0.6,name:"sword"});
+      ctx.restore();
     }
 
-    p.update(1, this.gravity);
-    this.resolveCollision();
+    // teken hitboxes
+    ctx.strokeStyle="#0008";
+    this.hitboxes.forEach(b=>{
+      ctx.strokeRect(b.x,b.y,b.w,b.h);
+    });
+
+    ctx.restore();
   }
 
-  draw() {
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.platforms.forEach(p => p.draw(ctx));
-    if(this.player) this.player.draw(ctx);
-  }
-
-  loop() {
-    this.update();
-    this.draw();
-    requestAnimationFrame(() => this.loop());
-  }
-
-  start() {
-    this.loop();
+  _part(ctx,x,y,w,h,color,name){
+    ctx.fillStyle=color;
+    ctx.fillRect(x,y,w,h);
+    this.hitboxes.push({x,y,w,h,name});
   }
 }
