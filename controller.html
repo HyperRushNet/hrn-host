@@ -6,14 +6,13 @@
 <button onclick="send('attack')">Attack</button>
 <pre id="l"></pre>
 <script>
-let log=t=>l.textContent+=t+"\n", l=document.getElementById("l");
-let p=new RTCPeerConnection({
-  iceServers:[],
-  iceTransportPolicy:"all",
-  iceCandidatePoolSize:0
+let log=t=>{if(t!==lastLog){l.textContent+=t+"\n"; lastLog=t}}, lastLog="";
+let l=document.getElementById("l"), p=new RTCPeerConnection({
+  iceServers:[], iceTransportPolicy:"all", iceCandidatePoolSize:0
 });
 let c=[], dc=p.createDataChannel("d",{ordered:false,maxRetransmits:0});
 dc.onopen=()=>log("🟢 Verbonden");
+dc.onclose=()=>log("🔴 Verbinding verbroken");
 dc.onmessage=e=>log("⬅️ "+e.data);
 p.onicecandidate=e=>{
   if(e.candidate)c.push(e.candidate.toJSON());
