@@ -1,33 +1,23 @@
-<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Controller</title></head><body>
-<h2>Controller</h2>
-<button onclick="start()">Genereer verbinding</button><br><br>
-<textarea id="out" placeholder="Verzend deze string naar Game" style="width:100%;height:100px;"></textarea><br>
-<button onclick="copy('out')">Kopieer</button><br><br>
-<textarea id="in" placeholder="Plak antwoord van Game" style="width:100%;height:100px;"></textarea><br>
-<button onclick="accept()">Verbind</button><br><br>
-<button onclick="send('jump')">Jump</button>
-<button onclick="send('attack')">Attack</button><br><pre id="log"></pre>
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>C</title></head><body>
+<h3>Controller</h3>
+<textarea id="o" style="width:100%;height:100px" placeholder="Output wordt hier gezet"></textarea>
+<textarea id="i" style="width:100%;height:100px" placeholder="Plak hier antwoord"></textarea>
+<button onclick="a()">Jump</button>
+<button onclick="b()">Attack</button>
+<pre id="l"></pre>
 <script>
-let pc, dc, cands=[];
-function log(t){document.getElementById('log').textContent+=t+'\n'}
-function copy(id){const t=document.getElementById(id);t.select();document.execCommand('copy')}
-function start(){
-  pc=new RTCPeerConnection();cands=[];
-  dc=pc.createDataChannel("c");
-  dc.onopen=()=>log("open"); dc.onmessage=e=>log("Game: "+e.data);
-  pc.onicecandidate=e=>{if(e.candidate){cands.push(e.candidate.toJSON());output()}}
-  pc.createOffer().then(o=>pc.setLocalDescription(o))
-}
-function output(){
-  const s=JSON.stringify({s:pc.localDescription, c:cands});
-  document.getElementById('out').value=btoa(s)
-}
-function accept(){
-  const d=JSON.parse(atob(document.getElementById('in').value.replace(/\s+/g,'')));
-  pc.setRemoteDescription(d.s);
-  d.c.forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)))
-}
-function send(msg){if(dc?.readyState=="open"){dc.send(msg);log(">> "+msg)}}
-</script>
-</body></html>
+let p=new RTCPeerConnection(),d=p.createDataChannel("c"),c=[];
+let log=t=>l.textContent+=t+"\n",l=document.getElementById('l');
+d.onopen=()=>log("🟢 Open"); d.onmessage=e=>log("⬅️ "+e.data);
+p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),z()};
+p.createOffer().then(o=>p.setLocalDescription(o));
+let z=()=>o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
+let x=document.getElementById("i"),o=document.getElementById("o");
+x.oninput=()=>{
+  try{let j=JSON.parse(atob(x.value.replace(/\s/g,'')));
+  p.setRemoteDescription(j.s); j.c.forEach(i=>p.addIceCandidate(new RTCIceCandidate(i)))
+  }catch(e){}
+};
+let a=()=>d.readyState=="open"&&(d.send("jump"),log("➡️ jump"));
+let b=()=>d.readyState=="open"&&(d.send("attack"),log("➡️ attack"));
+</script></body></html>
