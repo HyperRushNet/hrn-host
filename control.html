@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head><title>Controller</title></head>
+<body>
+<h1>Controller (Peer 1)</h1>
+
+<button id="startOffer">Maak Offer + verzamel ICE</button><br><br>
+
+<label>Offer SDP:</label><br>
+<textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
+
+<label>Offer ICE Candidates (JSON array):</label><br>
+<textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
+
+<label>Answer SDP plakken:</label><br>
+<textarea id="answerSDP" style="width:100%; height:120px;"></textarea><br><br>
+
+<label>Answer ICE Candidates plakken (JSON array):</label><br>
+<textarea id="answerICE" style="width:100%; height:80px;"></textarea><br><br>
+
+<button id="acceptAnswer">Plak Answer + ICE en verbind</button><br><br>
+
+<button id="sendJump">Jump</button>
+<button id="sendAttack">Attack</button>
+
+<p>Logs:<br><pre id="log"></pre></p>
+
+<script>
+  let pc = null;
+  let dc = null;
+  const logElem = document.getElementById('log');
+
+  function log(msg){
+    logElem.textContent += msg + "\n";
+  }
+
+  function createPeerConnection() {
+    pc = new RTCPeerConnection();
+    dc = pc.createDataChannel("data");
+    dc.onopen = () => log("DataChannel open!");
+    dc.onmessage = e => log("Feedback ontvangen: " + e.data);
+    pc.onicecandidate = e => {
+      if(e.candidate) {
+        offerCandidates.push(e.candidate.toJSON());
+        updateOfferICE();
+      }
+    };
+  }
+
+  let offerCandidates = [];
+
+  document.getElementById('startOffer').onclick = async () => {
+    createPeerConnection();
+    offerCandidates = [];
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    document.getElementById('offerSDP').value = JSON.stringify(pc.localDescription);
+    updateOfferICE();
+    log("Offer gemaakt");
+  };
+
+  function updateOfferICE(){
+    document.getElementById('offerICE').value = JSON.stringify(offerCandidates, null, 2);
+  }
+
+  document.getElementById('acceptAnswer').onclick = async () => {
+    if (!pc) {
+      createPeerConnection();
+    }
+    const answer = JSON.parse(document.getElementById('answerSDP').value);
+    await pc.setRemoteDescription(answer);
+    const candidates = JSON.parse(document.getElementById('answerICE').value);
+    for(const c of candidates){
+      await pc.addIceCandidate(new RTCIceCandidate(c));
+    }
+    log("Answer + ICE toegevoegd");
+  };
+
+  document.getElementById('sendJump').onclick = () => {
+    if(dc && dc.readyState === 'open'){
+      dc.send("jump");
+      log("Jump gestuurd");
+    } else {
+      log("DataChannel niet open");
+    }
+  };
+
+  document.getElementById('sendAttack').onclick = () => {
+    if(dc && dc.readyState === 'open'){
+      dc.send("attack");
+      log("Attack gestuurd");
+    } else {
+      log("DataChannel niet open");
+    }
+  };
+</script>
+</body>
+</html>
