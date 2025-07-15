@@ -1,16 +1,18 @@
 <!DOCTYPE html>
 <html>
-<head><title>Controller</title></head>
+<head>
+  <title>Controller</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
 <body>
 <h1>Controller (Peer 1)</h1>
 
 <button id="startOffer">Maak Offer + verzamel ICE</button><br><br>
 
-<label>Offer SDP:</label><br>
-<textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
+<label>Deelbare string (voor Game of QR):</label><br>
+<textarea id="combinedString" style="width:100%; height:120px;" readonly></textarea><br><br>
 
-<label>Offer ICE Candidates (JSON array):</label><br>
-<textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
+<div id="qrcode"></div><br>
 
 <label>Answer SDP plakken:</label><br>
 <textarea id="answerSDP" style="width:100%; height:120px;"></textarea><br><br>
@@ -28,45 +30,49 @@
 <script>
   let pc = null;
   let dc = null;
+  let offerCandidates = [];
   const logElem = document.getElementById('log');
 
-  function log(msg){
-    logElem.textContent += msg + "\n";
-  }
+  function log(msg){ logElem.textContent += msg + "\n"; }
 
   function createPeerConnection() {
     pc = new RTCPeerConnection();
     dc = pc.createDataChannel("data");
     dc.onopen = () => log("DataChannel open!");
-    dc.onmessage = e => log("Feedback ontvangen: " + e.data);
+    dc.onmessage = e => log("Feedback: " + e.data);
     pc.onicecandidate = e => {
       if(e.candidate) {
         offerCandidates.push(e.candidate.toJSON());
-        updateOfferICE();
+        updateCombinedString();
       }
     };
   }
 
-  let offerCandidates = [];
+  function updateCombinedString() {
+    const offerSDP = pc.localDescription;
+    const combined = {
+      sdp: offerSDP,
+      ice: offerCandidates
+    };
+    const jsonStr = JSON.stringify(combined);
+    document.getElementById('combinedString').value = jsonStr;
+    document.getElementById('qrcode').innerHTML = "";
+    new QRCode(document.getElementById("qrcode"), {
+      text: jsonStr,
+      width: 256,
+      height: 256
+    });
+  }
 
   document.getElementById('startOffer').onclick = async () => {
     createPeerConnection();
     offerCandidates = [];
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    document.getElementById('offerSDP').value = JSON.stringify(pc.localDescription);
-    updateOfferICE();
     log("Offer gemaakt");
   };
 
-  function updateOfferICE(){
-    document.getElementById('offerICE').value = JSON.stringify(offerCandidates, null, 2);
-  }
-
   document.getElementById('acceptAnswer').onclick = async () => {
-    if (!pc) {
-      createPeerConnection();
-    }
     const answer = JSON.parse(document.getElementById('answerSDP').value);
     await pc.setRemoteDescription(answer);
     const candidates = JSON.parse(document.getElementById('answerICE').value);
