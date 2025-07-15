@@ -1,98 +1,36 @@
 <!DOCTYPE html>
-<html>
-<head>
-  <title>Game</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    textarea, button { width: 100%; font-size: 16px; margin-top: 10px; }
-    #readyBlock { display: none; }
-  </style>
-</head>
-<body>
-<h1>Game (Peer 2)</h1>
-
-<label>Verbindingsstring van controller plakken:</label>
-<textarea id="offerString"></textarea>
-<button id="maakAntwoord">Genereer antwoord</button>
-
-<div id="readyBlock">
-  <label>Plak deze string terug in controller:</label>
-  <textarea id="answerString" readonly></textarea>
-  <button onclick="copyToClipboard('answerString')">Kopieer antwoordstring</button>
-
-  <p>Logs:</p>
-  <pre id="log"></pre>
-</div>
-
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Game</title></head><body>
+<h2>Game</h2>
+<textarea id="in" placeholder="Plak verbindingsstring van Controller" style="width:100%;height:100px;"></textarea><br>
+<button onclick="start()">Verwerk + genereer antwoord</button><br><br>
+<textarea id="out" placeholder="Stuur deze terug naar Controller" style="width:100%;height:100px;"></textarea><br>
+<button onclick="copy('out')">Kopieer</button><br><pre id="log"></pre>
 <script>
-  let pc, dc;
-  let answerCandidates = [];
-  const log = msg => logElem.textContent += msg + "\n";
-  const logElem = document.getElementById("log");
-  const readyBlock = document.getElementById("readyBlock");
-
-  function copyToClipboard(id) {
-    const el = document.getElementById(id);
-    el.select();
-    document.execCommand("copy");
-  }
-
-  document.getElementById("maakAntwoord").onclick = async () => {
-    try {
-      const raw = document.getElementById("offerString").value.replace(/\s+/g, '');
-      const decoded = JSON.parse(decodeURIComponent(escape(atob(raw))));
-
-      pc = new RTCPeerConnection();
-      answerCandidates = [];
-
-      pc.onicecandidate = e => {
-        if (e.candidate) {
-          answerCandidates.push(e.candidate.toJSON());
-          updateAnswerString();
-        }
-      };
-
-      pc.ondatachannel = e => {
-        dc = e.channel;
-        dc.onopen = () => log("Kanaal open!");
-        dc.onmessage = ev => {
-          log("Ontvangen: " + ev.data);
-          if (ev.data === "jump") {
-            log("Game: speler springt");
-            dc.send("Gesprongen!");
-          } else if (ev.data === "attack") {
-            log("Game: speler valt aan");
-            dc.send("Aanval uitgevoerd!");
-          } else {
-            dc.send("Onbekend commando");
-          }
-        };
-      };
-
-      await pc.setRemoteDescription(decoded.sdp);
-      for (const c of decoded.ice) {
-        await pc.addIceCandidate(new RTCIceCandidate(c));
-      }
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      updateAnswerString();
-      log("Antwoord gegenereerd");
-      readyBlock.style.display = "block";
-
-    } catch (e) {
-      log("Fout bij verwerken verbindingsstring: " + e);
+let pc, dc, cands=[];
+function log(t){document.getElementById('log').textContent+=t+'\n'}
+function copy(id){const t=document.getElementById(id);t.select();document.execCommand('copy')}
+function start(){
+  const d=JSON.parse(atob(document.getElementById('in').value.replace(/\s+/g,'')));
+  pc=new RTCPeerConnection(); cands=[];
+  pc.onicecandidate=e=>{if(e.candidate){cands.push(e.candidate.toJSON());output()}}
+  pc.ondatachannel=e=>{
+    dc=e.channel;
+    dc.onopen=()=>log("open");
+    dc.onmessage=ev=>{
+      log("<< "+ev.data);
+      if(ev.data=="jump")dc.send("gesprongen");
+      else if(ev.data=="attack")dc.send("aanval");
+      else dc.send("?");
     }
   };
-
-  function updateAnswerString() {
-    const payload = {
-      sdp: pc.localDescription,
-      ice: answerCandidates
-    };
-    const string = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-    document.getElementById("answerString").value = string;
-  }
+  pc.setRemoteDescription(d.s).then(()=>{
+    d.c.forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)))
+    return pc.createAnswer()
+  }).then(a=>pc.setLocalDescription(a))
+}
+function output(){
+  const s=JSON.stringify({s:pc.localDescription, c:cands});
+  document.getElementById('out').value=btoa(s)
+}
 </script>
-</body>
-</html>
+</body></html>
