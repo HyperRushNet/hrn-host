@@ -4,15 +4,14 @@
 <textarea id="o" style="width:100%;height:100px" placeholder="Terug naar controller"></textarea>
 <pre id="l"></pre>
 <script>
-let log=t=>l.textContent+=t+"\n", l=document.getElementById("l");
-let i=document.getElementById("i"), o=document.getElementById("o"), c=[], p, dc;
+let log=t=>{if(t!==lastLog){l.textContent+=t+"\n"; lastLog=t}}, lastLog="";
+let i=document.getElementById("i"), o=document.getElementById("o"), l=document.getElementById("l");
+let c=[], p, dc;
 i.oninput=()=>{try{
   let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
-  if(p)return; // al verbonden
+  if(p)return;
   p=new RTCPeerConnection({
-    iceServers:[],
-    iceTransportPolicy:"all",
-    iceCandidatePoolSize:0
+    iceServers:[], iceTransportPolicy:"all", iceCandidatePoolSize:0
   });
   p.onicecandidate=e=>{
     if(e.candidate)c.push(e.candidate.toJSON());
@@ -21,6 +20,7 @@ i.oninput=()=>{try{
   p.ondatachannel=e=>{
     dc=e.channel;
     dc.onopen=()=>log("🟢 Verbonden");
+    dc.onclose=()=>log("🔴 Verbinding verbroken");
     dc.onmessage=ev=>{
       let m=ev.data;
       log("⬅️ "+m);
