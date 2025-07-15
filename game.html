@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>Game</title>
-  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
 <h1>Game (Peer 2)</h1>
@@ -21,66 +21,62 @@
 <p>Ontvangen data:<br><pre id="log"></pre></p>
 
 <script>
-  let pc = null;
-  let dc = null;
-  let answerCandidates = [];
-  const logElem = document.getElementById('log');
+let pc = null, dc = null, answerCandidates = [];
+const logElem = document.getElementById('log');
 
-  function log(msg){ logElem.textContent += msg + "\n"; }
+function log(msg){ logElem.textContent += msg + "\n"; }
 
-  document.getElementById('startCamera').onclick = () => {
-    const qr = new Html5Qrcode("reader");
-    qr.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: 250 },
-      (decodedText) => {
-        qr.stop();
-        document.getElementById("combinedString").value = decodedText;
-        log("QR gescand!");
-      },
-      (errorMessage) => {}
-    );
+document.getElementById('startCamera').onclick = () => {
+  const qr = new Html5Qrcode("reader");
+  qr.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
+    decodedText => {
+      qr.stop();
+      document.getElementById("combinedString").value = decodedText;
+      log("QR gescand!");
+    },
+    error => {}
+  );
+};
+
+document.getElementById('connect').onclick = async () => {
+  if(pc) return;
+  const combined = JSON.parse(atob(document.getElementById('combinedString').value));
+  pc = new RTCPeerConnection();
+  answerCandidates = [];
+
+  await pc.setRemoteDescription(combined.sdp);
+
+  pc.onicecandidate = e => {
+    if(e.candidate) {
+      answerCandidates.push(e.candidate.toJSON());
+      document.getElementById('answerICE').value = JSON.stringify(answerCandidates, null, 2);
+    }
   };
 
-  document.getElementById('connect').onclick = async () => {
-    if(pc) return;
-    const data = JSON.parse(document.getElementById('combinedString').value);
-    pc = new RTCPeerConnection();
-    answerCandidates = [];
-
-    await pc.setRemoteDescription(data.sdp);
-
-    pc.onicecandidate = e => {
-      if(e.candidate) {
-        answerCandidates.push(e.candidate.toJSON());
-        document.getElementById('answerICE').value = JSON.stringify(answerCandidates, null, 2);
+  pc.ondatachannel = event => {
+    dc = event.channel;
+    dc.onopen = () => log("DataChannel open!");
+    dc.onmessage = e => {
+      log("Ontvangen: " + e.data);
+      if (e.data === "jump") {
+        dc.send("Speler sprong!");
+      } else if (e.data === "attack") {
+        dc.send("Speler viel aan!");
+      } else {
+        dc.send("Onbekend commando");
       }
     };
-
-    pc.ondatachannel = event => {
-      dc = event.channel;
-      dc.onopen = () => log("DataChannel open!");
-      dc.onmessage = e => {
-        log("Ontvangen: " + e.data);
-        if (e.data === "jump") {
-          dc.send("Speler sprong!");
-        } else if (e.data === "attack") {
-          dc.send("Speler viel aan!");
-        } else {
-          dc.send("Onbekend commando");
-        }
-      };
-    };
-
-    for(const c of data.ice){
-      await pc.addIceCandidate(new RTCIceCandidate(c));
-    }
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
-    log("Verbonden en answer gegenereerd");
   };
+
+  for(const c of combined.ice){
+    await pc.addIceCandidate(new RTCIceCandidate(c));
+  }
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
+  log("Verbonden en answer gegenereerd");
+};
 </script>
 </body>
 </html>
