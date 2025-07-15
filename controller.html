@@ -1,23 +1,25 @@
 <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>C</title></head><body>
 <h3>Controller</h3>
-<textarea id="o" style="width:100%;height:100px" placeholder="Output wordt hier gezet"></textarea>
-<textarea id="i" style="width:100%;height:100px" placeholder="Plak hier antwoord"></textarea>
-<button onclick="a()">Jump</button>
-<button onclick="b()">Attack</button>
+<textarea id="o" style="width:100%;height:100px" placeholder="Output"></textarea>
+<textarea id="i" style="width:100%;height:100px" placeholder="Plak antwoord"></textarea>
+<button onclick="s('jump')">Jump</button>
+<button onclick="s('attack')">Attack</button>
 <pre id="l"></pre>
 <script>
-let p=new RTCPeerConnection(),d=p.createDataChannel("c"),c=[];
-let log=t=>l.textContent+=t+"\n",l=document.getElementById('l');
+let p=new RTCPeerConnection({
+  iceServers:[],
+  iceTransportPolicy:"all",
+  iceCandidatePoolSize:0
+}),d=p.createDataChannel("c",{ordered:false,maxRetransmits:0}),c=[];
+let o=document.getElementById("o"),i=document.getElementById("i"),l=document.getElementById("l");
+let log=t=>l.textContent+=t+"\n";
 d.onopen=()=>log("🟢 Open"); d.onmessage=e=>log("⬅️ "+e.data);
-p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),z()};
+p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),o.value=btoa(JSON.stringify({s:p.localDescription,c:c}))};
 p.createOffer().then(o=>p.setLocalDescription(o));
-let z=()=>o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
-let x=document.getElementById("i"),o=document.getElementById("o");
-x.oninput=()=>{
-  try{let j=JSON.parse(atob(x.value.replace(/\s/g,'')));
-  p.setRemoteDescription(j.s); j.c.forEach(i=>p.addIceCandidate(new RTCIceCandidate(i)))
-  }catch(e){}
-};
-let a=()=>d.readyState=="open"&&(d.send("jump"),log("➡️ jump"));
-let b=()=>d.readyState=="open"&&(d.send("attack"),log("➡️ attack"));
+i.oninput=()=>{try{
+  let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
+  p.setRemoteDescription(j.s);
+  j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)))
+}catch{}};
+let s=msg=>{if(d.readyState==="open")d.send(msg),log("➡️ "+msg)};
 </script></body></html>
