@@ -3,37 +3,26 @@
 <head>
   <title>WebRTC Peer</title>
   <meta charset="utf-8" />
+  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
 </head>
 <body>
-  <h1>WebRTC Peer (2 kanten in 1)</h1>
+  <h1>WebRTC Peer (2 kanten in 1, gecomprimeerd)</h1>
 
   <button id="makeOffer">Maak Offer + ICE</button><br><br>
 
-  <label>Offer SDP:</label><br>
-  <textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
+  <label>Gecombineerde Offer (1 string):</label><br>
+  <textarea id="offerCombined" style="width:100%; height:120px;"></textarea><br><br>
 
-  <label>Offer ICE Candidates:</label><br>
-  <textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
-
-  <label>Plak binnenkomende Offer SDP:</label><br>
-  <textarea id="remoteOfferSDP" style="width:100%; height:120px;"></textarea><br><br>
-
-  <label>Plak binnenkomende Offer ICE Candidates:</label><br>
-  <textarea id="remoteOfferICE" style="width:100%; height:80px;"></textarea><br><br>
+  <label>Plak binnenkomende Offer:</label><br>
+  <textarea id="remoteOfferCombined" style="width:100%; height:120px;"></textarea><br><br>
 
   <button id="makeAnswer">Maak Answer + ICE</button><br><br>
 
-  <label>Answer SDP:</label><br>
-  <textarea id="answerSDP" style="width:100%; height:120px;"></textarea><br><br>
+  <label>Gecombineerde Answer (1 string):</label><br>
+  <textarea id="answerCombined" style="width:100%; height:120px;"></textarea><br><br>
 
-  <label>Answer ICE Candidates:</label><br>
-  <textarea id="answerICE" style="width:100%; height:80px;"></textarea><br><br>
-
-  <label>Plak binnenkomende Answer SDP:</label><br>
-  <textarea id="remoteAnswerSDP" style="width:100%; height:120px;"></textarea><br><br>
-
-  <label>Plak binnenkomende Answer ICE Candidates:</label><br>
-  <textarea id="remoteAnswerICE" style="width:100%; height:80px;"></textarea><br><br>
+  <label>Plak binnenkomende Answer:</label><br>
+  <textarea id="remoteAnswerCombined" style="width:100%; height:120px;"></textarea><br><br>
 
   <button id="acceptAnswer">Plak Answer + ICE</button><br><br>
 
@@ -44,7 +33,7 @@
 
 <script>
 let pc, dc;
-let localICE = [], remoteICE = [];
+let localICE = [];
 
 function log(msg) {
   document.getElementById('log').textContent += msg + "\n";
@@ -55,7 +44,6 @@ function setupConnection(isInitiator) {
   pc.onicecandidate = e => {
     if (e.candidate) {
       localICE.push(e.candidate.toJSON());
-      updateICEFields(isInitiator);
     }
   };
 
@@ -76,12 +64,14 @@ function setupDataChannel() {
   dc.onclose = () => log("DataChannel gesloten");
 }
 
-function updateICEFields(isInitiator) {
-  const target = isInitiator ? 'offerICE' : 'answerICE';
-  document.getElementById(target).value = JSON.stringify(localICE, null, 2);
+function compress(obj) {
+  return LZString.compressToUTF16(JSON.stringify(obj));
 }
 
-// Make offer
+function decompress(str) {
+  return JSON.parse(LZString.decompressFromUTF16(str));
+}
+
 document.getElementById('makeOffer').onclick = async () => {
   setupConnection(true);
   localICE = [];
@@ -89,35 +79,49 @@ document.getElementById('makeOffer').onclick = async () => {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  document.getElementById('offerSDP').value = JSON.stringify(pc.localDescription);
+  // wacht op ICE candidates
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  const data = {
+    sdp: pc.localDescription,
+    ice: localICE
+  };
+
+  document.getElementById('offerCombined').value = compress(data);
 };
 
-// Accept offer, make answer
 document.getElementById('makeAnswer').onclick = async () => {
   setupConnection(false);
   localICE = [];
 
-  const sdp = document.getElementById('remoteOfferSDP').value;
-  const ice = JSON.parse(document.getElementById('remoteOfferICE').value || '[]');
-  await pc.setRemoteDescription(JSON.parse(sdp));
+  const input = document.getElementById('remoteOfferCombined').value;
+  const { sdp, ice } = decompress(input);
+
+  await pc.setRemoteDescription(sdp);
   for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  const data = {
+    sdp: pc.localDescription,
+    ice: localICE
+  };
+
+  document.getElementById('answerCombined').value = compress(data);
 };
 
-// Accept answer + ICE
 document.getElementById('acceptAnswer').onclick = async () => {
-  const sdp = document.getElementById('remoteAnswerSDP').value;
-  const ice = JSON.parse(document.getElementById('remoteAnswerICE').value || '[]');
-  await pc.setRemoteDescription(JSON.parse(sdp));
+  const input = document.getElementById('remoteAnswerCombined').value;
+  const { sdp, ice } = decompress(input);
+
+  await pc.setRemoteDescription(sdp);
   for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
   log("Verbonden met Answer");
 };
 
-// Send message
 document.getElementById('sendBtn').onclick = () => {
   const msg = document.getElementById('sendMsg').value;
   if (dc && dc.readyState === "open") {
