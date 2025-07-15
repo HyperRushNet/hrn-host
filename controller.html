@@ -1,109 +1,33 @@
 <!DOCTYPE html>
-<html>
-<head>
-  <title>Controller</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    textarea, button { width: 100%; font-size: 16px; margin-top: 10px; }
-    #readyBlock { display: none; }
-  </style>
-</head>
-<body>
-<h1>Controller (Peer 1)</h1>
-
-<button id="startOffer">Maak verbindingsstring</button>
-
-<div id="readyBlock">
-  <label>Verbindingsstring (voor Game):</label>
-  <textarea id="connectionString" readonly></textarea>
-  <button onclick="copyToClipboard('connectionString')">Kopieer verbindingsstring</button>
-
-  <label>Ontvangen antwoordstring:</label>
-  <textarea id="answerString"></textarea>
-  <button id="connect">Verbind met antwoord</button>
-
-  <button id="sendJump">Stuur: Jump</button>
-  <button id="sendAttack">Stuur: Attack</button>
-
-  <p>Logs:</p>
-  <pre id="log"></pre>
-</div>
-
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Controller</title></head><body>
+<h2>Controller</h2>
+<button onclick="start()">Genereer verbinding</button><br><br>
+<textarea id="out" placeholder="Verzend deze string naar Game" style="width:100%;height:100px;"></textarea><br>
+<button onclick="copy('out')">Kopieer</button><br><br>
+<textarea id="in" placeholder="Plak antwoord van Game" style="width:100%;height:100px;"></textarea><br>
+<button onclick="accept()">Verbind</button><br><br>
+<button onclick="send('jump')">Jump</button>
+<button onclick="send('attack')">Attack</button><br><pre id="log"></pre>
 <script>
-  let pc, dc;
-  let offerCandidates = [];
-  const log = msg => logElem.textContent += msg + "\n";
-  const logElem = document.getElementById("log");
-  const readyBlock = document.getElementById("readyBlock");
-
-  function copyToClipboard(id) {
-    const el = document.getElementById(id);
-    el.select();
-    document.execCommand("copy");
-  }
-
-  function createPeerConnection() {
-    pc = new RTCPeerConnection();
-    dc = pc.createDataChannel("data");
-
-    dc.onopen = () => log("Kanaal open!");
-    dc.onmessage = e => log("Feedback van game: " + e.data);
-
-    pc.onicecandidate = e => {
-      if (e.candidate) {
-        offerCandidates.push(e.candidate.toJSON());
-        updateConnectionString();
-      }
-    };
-  }
-
-  function updateConnectionString() {
-    const payload = {
-      sdp: pc.localDescription,
-      ice: offerCandidates
-    };
-    const string = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-    document.getElementById("connectionString").value = string;
-  }
-
-  document.getElementById("startOffer").onclick = async () => {
-    createPeerConnection();
-    offerCandidates = [];
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    updateConnectionString();
-    log("Aanbod gegenereerd");
-    readyBlock.style.display = "block";
-  };
-
-  document.getElementById("connect").onclick = async () => {
-    try {
-      const raw = document.getElementById("answerString").value.replace(/\s+/g, '');
-      const decoded = JSON.parse(decodeURIComponent(escape(atob(raw))));
-      await pc.setRemoteDescription(decoded.sdp);
-      for (const c of decoded.ice) {
-        await pc.addIceCandidate(new RTCIceCandidate(c));
-      }
-      log("Verbonden met game");
-    } catch (e) {
-      log("Fout bij verbinden: " + e);
-    }
-  };
-
-  document.getElementById("sendJump").onclick = () => {
-    if (dc?.readyState === "open") {
-      dc.send("jump");
-      log("Jump gestuurd");
-    } else log("Kanaal niet open");
-  };
-
-  document.getElementById("sendAttack").onclick = () => {
-    if (dc?.readyState === "open") {
-      dc.send("attack");
-      log("Attack gestuurd");
-    } else log("Kanaal niet open");
-  };
+let pc, dc, cands=[];
+function log(t){document.getElementById('log').textContent+=t+'\n'}
+function copy(id){const t=document.getElementById(id);t.select();document.execCommand('copy')}
+function start(){
+  pc=new RTCPeerConnection();cands=[];
+  dc=pc.createDataChannel("c");
+  dc.onopen=()=>log("open"); dc.onmessage=e=>log("Game: "+e.data);
+  pc.onicecandidate=e=>{if(e.candidate){cands.push(e.candidate.toJSON());output()}}
+  pc.createOffer().then(o=>pc.setLocalDescription(o))
+}
+function output(){
+  const s=JSON.stringify({s:pc.localDescription, c:cands});
+  document.getElementById('out').value=btoa(s)
+}
+function accept(){
+  const d=JSON.parse(atob(document.getElementById('in').value.replace(/\s+/g,'')));
+  pc.setRemoteDescription(d.s);
+  d.c.forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)))
+}
+function send(msg){if(dc?.readyState=="open"){dc.send(msg);log(">> "+msg)}}
 </script>
-</body>
-</html>
+</body></html>
