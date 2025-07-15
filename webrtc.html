@@ -1,197 +1,133 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html>
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WebRTC DataChannel + Video met snelle signaling</title>
-<style>
-  body { font-family: monospace; background:#111; color:#eee; padding:1rem; }
-  video { width: 45%; background:#222; margin:0.5rem; border: 2px solid #444; vertical-align: top; }
-  textarea { width: 100%; height: 5rem; background:#222; color:#eee; border:1px solid #555; font-family: monospace; resize:none; }
-  button { padding: 0.5rem 1rem; margin: 0.5rem 0.2rem; cursor: pointer; background:#333; border:none; color:#eee; }
-  #chat { width: 90%; height: 100px; overflow-y: auto; background:#222; border:1px solid #555; margin:0.5rem 0; padding:0.3rem; }
-  input[type=text] { width: 80%; background:#222; border:1px solid #555; color:#eee; padding:0.3rem; }
-</style>
+  <title>WebRTC Peer</title>
+  <meta charset="utf-8" />
 </head>
 <body>
+  <h1>WebRTC Peer (2 kanten in 1)</h1>
 
-<h2>WebRTC DataChannel + Video met snelle signaling</h2>
+  <button id="makeOffer">Maak Offer + ICE</button><br><br>
 
-<div>
-  <video id="localVideo" autoplay muted playsinline></video>
-  <video id="remoteVideo" autoplay playsinline></video>
-</div>
+  <label>Offer SDP:</label><br>
+  <textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
 
-<h3>Stap 1: Genereer Offer (copy deze JSON en stuur naar peer)</h3>
-<textarea id="offerOutput" readonly></textarea><br/>
-<button id="createOfferBtn">Genereer Offer</button>
+  <label>Offer ICE Candidates:</label><br>
+  <textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
 
-<h3>Stap 2: Plak Offer van peer (en genereer Answer)</h3>
-<textarea id="offerInput"></textarea><br/>
-<button id="acceptOfferBtn">Importeer Offer & Genereer Answer</button>
+  <label>Plak binnenkomende Offer SDP:</label><br>
+  <textarea id="remoteOfferSDP" style="width:100%; height:120px;"></textarea><br><br>
 
-<h3>Stap 3: Plak Answer van peer</h3>
-<textarea id="answerInput"></textarea><br/>
-<button id="acceptAnswerBtn">Importeer Answer</button>
+  <label>Plak binnenkomende Offer ICE Candidates:</label><br>
+  <textarea id="remoteOfferICE" style="width:100%; height:80px;"></textarea><br><br>
 
-<h3>DataChannel Chat</h3>
-<div id="chat"></div>
-<input id="chatInput" type="text" placeholder="Typ bericht..." autocomplete="off" />
-<button id="sendChatBtn">Verstuur</button>
+  <button id="makeAnswer">Maak Answer + ICE</button><br><br>
+
+  <label>Answer SDP:</label><br>
+  <textarea id="answerSDP" style="width:100%; height:120px;"></textarea><br><br>
+
+  <label>Answer ICE Candidates:</label><br>
+  <textarea id="answerICE" style="width:100%; height:80px;"></textarea><br><br>
+
+  <label>Plak binnenkomende Answer SDP:</label><br>
+  <textarea id="remoteAnswerSDP" style="width:100%; height:120px;"></textarea><br><br>
+
+  <label>Plak binnenkomende Answer ICE Candidates:</label><br>
+  <textarea id="remoteAnswerICE" style="width:100%; height:80px;"></textarea><br><br>
+
+  <button id="acceptAnswer">Plak Answer + ICE</button><br><br>
+
+  <input type="text" id="sendMsg" placeholder="Typ bericht..." />
+  <button id="sendBtn">Stuur</button>
+
+  <pre id="log" style="background:#111;color:#0f0;padding:1rem;"></pre>
 
 <script>
-(async () => {
-  const localVideo = document.getElementById("localVideo");
-  const remoteVideo = document.getElementById("remoteVideo");
-  const offerOutput = document.getElementById("offerOutput");
-  const offerInput = document.getElementById("offerInput");
-  const answerInput = document.getElementById("answerInput");
-  const chat = document.getElementById("chat");
-  const chatInput = document.getElementById("chatInput");
-  const sendChatBtn = document.getElementById("sendChatBtn");
-  const createOfferBtn = document.getElementById("createOfferBtn");
-  const acceptOfferBtn = document.getElementById("acceptOfferBtn");
-  const acceptAnswerBtn = document.getElementById("acceptAnswerBtn");
+let pc, dc;
+let localICE = [], remoteICE = [];
 
-  let pc;
-  let dataChannel;
+function log(msg) {
+  document.getElementById('log').textContent += msg + "\n";
+}
 
-  const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localVideo.srcObject = stream;
-  } catch (e) {
-    alert("Geen toegang tot camera/microfoon: " + e);
-  }
-
-  function logChat(msg, from = "Peer") {
-    const div = document.createElement("div");
-    div.textContent = `${from}: ${msg}`;
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
-  }
-
-  function createPeerConnection(isCaller) {
-    pc = new RTCPeerConnection(config);
-
-    if (localVideo.srcObject) {
-      localVideo.srcObject.getTracks().forEach(track => pc.addTrack(track, localVideo.srcObject));
+function setupConnection(isInitiator) {
+  pc = new RTCPeerConnection();
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      localICE.push(e.candidate.toJSON());
+      updateICEFields(isInitiator);
     }
+  };
 
-    pc.ontrack = e => {
-      if (remoteVideo.srcObject !== e.streams[0]) {
-        remoteVideo.srcObject = e.streams[0];
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log("ICE connection state:", pc.iceConnectionState);
-    };
-
-    // DataChannel ontvangen als callee
-    if (!isCaller) {
-      pc.ondatachannel = e => {
-        dataChannel = e.channel;
-        setupDataChannel();
-      };
-    }
-  }
-
-  function setupDataChannel() {
-    dataChannel.onopen = () => logChat("DataChannel open!", "System");
-    dataChannel.onmessage = e => logChat(e.data, "Peer");
-    dataChannel.onclose = () => logChat("DataChannel gesloten", "System");
-    dataChannel.onerror = e => console.error("DataChannel error:", e);
-  }
-
-  function updateLocalDescriptionOutput(textarea) {
-    textarea.value = JSON.stringify(pc.localDescription);
-  }
-
-  function waitForIceGatheringComplete() {
-    return new Promise(resolve => {
-      if (pc.iceGatheringState === "complete") {
-        resolve();
-      } else {
-        function checkState() {
-          if (pc.iceGatheringState === "complete") {
-            pc.removeEventListener("icegatheringstatechange", checkState);
-            resolve();
-          }
-        }
-        pc.addEventListener("icegatheringstatechange", checkState);
-      }
-    });
-  }
-
-  createOfferBtn.onclick = async () => {
-    createPeerConnection(true);
-
-    // Caller maakt DataChannel
-    dataChannel = pc.createDataChannel("chat");
+  if (isInitiator) {
+    dc = pc.createDataChannel("chat");
     setupDataChannel();
+  } else {
+    pc.ondatachannel = e => {
+      dc = e.channel;
+      setupDataChannel();
+    };
+  }
+}
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+function setupDataChannel() {
+  dc.onopen = () => log("DataChannel open!");
+  dc.onmessage = e => log("Peer: " + e.data);
+  dc.onclose = () => log("DataChannel gesloten");
+}
 
-    updateLocalDescriptionOutput(offerOutput);
+function updateICEFields(isInitiator) {
+  const target = isInitiator ? 'offerICE' : 'answerICE';
+  document.getElementById(target).value = JSON.stringify(localICE, null, 2);
+}
 
-    await waitForIceGatheringComplete();
-    updateLocalDescriptionOutput(offerOutput);
-  };
+// Make offer
+document.getElementById('makeOffer').onclick = async () => {
+  setupConnection(true);
+  localICE = [];
 
-  acceptOfferBtn.onclick = async () => {
-    const offerText = offerInput.value;
-    if (!offerText) return alert("Plak eerst de offer JSON");
-    createPeerConnection(false);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
 
-    try {
-      const offerDesc = new RTCSessionDescription(JSON.parse(offerText));
-      await pc.setRemoteDescription(offerDesc);
-    } catch (e) {
-      return alert("Ongeldige offer JSON: " + e);
-    }
+  document.getElementById('offerSDP').value = JSON.stringify(pc.localDescription);
+};
 
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
+// Accept offer, make answer
+document.getElementById('makeAnswer').onclick = async () => {
+  setupConnection(false);
+  localICE = [];
 
-    updateLocalDescriptionOutput(answerInput);
+  const sdp = document.getElementById('remoteOfferSDP').value;
+  const ice = JSON.parse(document.getElementById('remoteOfferICE').value || '[]');
+  await pc.setRemoteDescription(JSON.parse(sdp));
+  for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
 
-    await waitForIceGatheringComplete();
-    updateLocalDescriptionOutput(answerInput);
-  };
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
 
-  acceptAnswerBtn.onclick = async () => {
-    const answerText = answerInput.value;
-    if (!answerText) return alert("Plak eerst de answer JSON");
-    try {
-      const answerDesc = new RTCSessionDescription(JSON.parse(answerText));
-      await pc.setRemoteDescription(answerDesc);
-      alert("Answer geïmporteerd! Verbinding wordt opgezet.");
-    } catch (e) {
-      alert("Ongeldige answer JSON: " + e);
-    }
-  };
+  document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
+};
 
-  sendChatBtn.onclick = () => {
-    const msg = chatInput.value.trim();
-    if (!msg) return;
-    if (!dataChannel || dataChannel.readyState !== "open") {
-      alert("DataChannel niet open");
-      return;
-    }
-    dataChannel.send(msg);
-    logChat(msg, "Jij");
-    chatInput.value = "";
-  };
+// Accept answer + ICE
+document.getElementById('acceptAnswer').onclick = async () => {
+  const sdp = document.getElementById('remoteAnswerSDP').value;
+  const ice = JSON.parse(document.getElementById('remoteAnswerICE').value || '[]');
+  await pc.setRemoteDescription(JSON.parse(sdp));
+  for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
+  log("Verbonden met Answer");
+};
 
-  chatInput.addEventListener("keydown", e => {
-    if (e.key === "Enter") sendChatBtn.click();
-  });
-
-})();
+// Send message
+document.getElementById('sendBtn').onclick = () => {
+  const msg = document.getElementById('sendMsg').value;
+  if (dc && dc.readyState === "open") {
+    dc.send(msg);
+    log("Jij: " + msg);
+    document.getElementById('sendMsg').value = "";
+  } else {
+    log("DataChannel nog niet open");
+  }
+};
 </script>
-
 </body>
 </html>
