@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WebRTC zonder signaling - Alles in 1</title>
+<title>WebRTC snelle signaling met automatische ICE update</title>
 <style>
   body { font-family: monospace; background:#111; color:#eee; padding:1rem; }
   video { width: 45%; background:#222; margin:0.5rem; border: 2px solid #444; vertical-align: top; }
@@ -15,7 +15,7 @@
 </head>
 <body>
 
-<h2>WebRTC zonder signaling — copy/paste handmatig</h2>
+<h2>WebRTC snelle signaling met automatische ICE update</h2>
 
 <div>
   <video id="localVideo" autoplay muted playsinline></video>
@@ -41,7 +41,6 @@
 
 <script>
 (async () => {
-  // HTML element refs
   const localVideo = document.getElementById("localVideo");
   const remoteVideo = document.getElementById("remoteVideo");
   const offerOutput = document.getElementById("offerOutput");
@@ -54,15 +53,11 @@
   const acceptOfferBtn = document.getElementById("acceptOfferBtn");
   const acceptAnswerBtn = document.getElementById("acceptAnswerBtn");
 
-  // Peer connection + DataChannel vars
   let pc;
   let dataChannel;
-  let isOfferer = false;
 
-  // Common STUN servers
   const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-  // Start local camera
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = stream;
@@ -77,11 +72,9 @@
     chat.scrollTop = chat.scrollHeight;
   }
 
-  // Setup peer connection and events
   function createPeerConnection() {
     pc = new RTCPeerConnection(config);
 
-    // Add local stream tracks
     if (localVideo.srcObject) {
       localVideo.srcObject.getTracks().forEach(track => pc.addTrack(track, localVideo.srcObject));
     }
@@ -90,10 +83,6 @@
       if (remoteVideo.srcObject !== e.streams[0]) {
         remoteVideo.srcObject = e.streams[0];
       }
-    };
-
-    pc.onicecandidate = e => {
-      if (e.candidate) return; // wait for gathering to finish before creating offer/answer
     };
 
     pc.ondatachannel = e => {
@@ -108,21 +97,17 @@
     dataChannel.onclose = () => logChat("DataChannel gesloten", "System");
   }
 
-  // OFFERER
-  createOfferBtn.onclick = async () => {
-    isOfferer = true;
-    createPeerConnection();
+  // Helper: update textarea met huidige localDescription JSON
+  function updateLocalDescriptionOutput(textarea) {
+    textarea.value = JSON.stringify(pc.localDescription);
+  }
 
-    dataChannel = pc.createDataChannel("chat");
-    setupDataChannel();
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    // Wacht tot ICE gathering klaar is
-    await new Promise(resolve => {
-      if (pc.iceGatheringState === "complete") resolve();
-      else {
+  // ICE gathering finished flag
+  function waitForIceGatheringComplete() {
+    return new Promise(resolve => {
+      if (pc.iceGatheringState === "complete") {
+        resolve();
+      } else {
         function checkState() {
           if (pc.iceGatheringState === "complete") {
             pc.removeEventListener("icegatheringstatechange", checkState);
@@ -132,11 +117,25 @@
         pc.addEventListener("icegatheringstatechange", checkState);
       }
     });
+  }
 
-    offerOutput.value = JSON.stringify(pc.localDescription);
+  createOfferBtn.onclick = async () => {
+    createPeerConnection();
+
+    dataChannel = pc.createDataChannel("chat");
+    setupDataChannel();
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    // Show direct offer JSON asap
+    updateLocalDescriptionOutput(offerOutput);
+
+    // Update when ICE gathering complete
+    await waitForIceGatheringComplete();
+    updateLocalDescriptionOutput(offerOutput);
   };
 
-  // ANSWERER
   acceptOfferBtn.onclick = async () => {
     const offerText = offerInput.value;
     if (!offerText) return alert("Plak eerst de offer JSON");
@@ -152,37 +151,24 @@
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    // Wacht tot ICE gathering klaar is
-    await new Promise(resolve => {
-      if (pc.iceGatheringState === "complete") resolve();
-      else {
-        function checkState() {
-          if (pc.iceGatheringState === "complete") {
-            pc.removeEventListener("icegatheringstatechange", checkState);
-            resolve();
-          }
-        }
-        pc.addEventListener("icegatheringstatechange", checkState);
-      }
-    });
+    updateLocalDescriptionOutput(answerInput);
 
-    answerInput.value = JSON.stringify(pc.localDescription);
+    await waitForIceGatheringComplete();
+    updateLocalDescriptionOutput(answerInput);
   };
 
-  // OFFERER accepteert antwoord
   acceptAnswerBtn.onclick = async () => {
     const answerText = answerInput.value;
     if (!answerText) return alert("Plak eerst de answer JSON");
     try {
       const answerDesc = new RTCSessionDescription(JSON.parse(answerText));
       await pc.setRemoteDescription(answerDesc);
-      alert("Answer geïmporteerd! Verbinding opzetten...");
+      alert("Answer geïmporteerd! Verbinding wordt opgezet.");
     } catch (e) {
       alert("Ongeldige answer JSON: " + e);
     }
   };
 
-  // Chat verzenden
   sendChatBtn.onclick = () => {
     const msg = chatInput.value.trim();
     if (!msg) return;
