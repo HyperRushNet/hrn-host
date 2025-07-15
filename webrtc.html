@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EasyWebRTC zonder signaling - Werkend</title>
+<style>
+  body { font-family: monospace; margin: 1rem; background:#111; color:#eee; }
+  video { width: 45%; background:#222; margin:0.5rem; border: 2px solid #444; vertical-align: top; }
+  textarea { width: 100%; height: 5rem; background:#222; color:#eee; border:1px solid #555; font-family: monospace; resize:none; }
+  button { padding: 0.5rem 1rem; margin: 0.5rem 0.2rem; cursor: pointer; background:#333; border:none; color:#eee; }
+  #chat { width: 90%; height: 100px; overflow-y: auto; background:#222; border:1px solid #555; margin:0.5rem 0; padding:0.3rem; }
+  input[type=text] { width: 80%; background:#222; border:1px solid #555; color:#eee; padding:0.3rem; }
+</style>
+</head>
+<body>
+
+<h2>EasyWebRTC zonder signaling (handmatig copy-paste)</h2>
+
+<div>
+  <video id="local" autoplay muted playsinline></video>
+  <video id="remote" autoplay playsinline></video>
+</div>
+
+<h3>Offer genereren (copy naar andere peer):</h3>
+<textarea id="offerOut" readonly></textarea><br/>
+<button id="genOffer">Genereer Offer</button>
+
+<h3>Answer plakken (van andere peer):</h3>
+<textarea id="answerIn"></textarea><br/>
+<button id="setAnswer">Importeer Answer</button>
+
+<h3>Chat (DataChannel):</h3>
+<div id="chat"></div>
+<input id="chatInput" type="text" placeholder="Typ bericht..." autocomplete="off" />
+<button id="sendChat">Verstuur</button>
+
+<script src="https://hrn-host.vercel.app/easywebrtc.js"></script>
+<script>
+(async () => {
+  const localVideo = document.getElementById("local");
+  const remoteVideo = document.getElementById("remote");
+  const offerOut = document.getElementById("offerOut");
+  const answerIn = document.getElementById("answerIn");
+  const chat = document.getElementById("chat");
+  const chatInput = document.getElementById("chatInput");
+  const sendChat = document.getElementById("sendChat");
+  const genOffer = document.getElementById("genOffer");
+  const setAnswer = document.getElementById("setAnswer");
+
+  const webrtc = new EasyWebRTC({ localVideo, remoteVideo });
+
+  function logChat(msg, from='Peer') {
+    const el = document.createElement("div");
+    el.textContent = `${from}: ${msg}`;
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  webrtc.onConnect = () => logChat("DataChannel open!", "System");
+  webrtc.onData = msg => logChat(msg, "Peer");
+
+  genOffer.onclick = async () => {
+    const offer = await webrtc.exportOffer();
+    offerOut.value = offer;
+  };
+
+  setAnswer.onclick = async () => {
+    const answer = answerIn.value.trim();
+    if (!answer) return alert("Plak eerst de answer JSON");
+    try {
+      await webrtc.importAnswer(answer);
+      alert("Answer geïmporteerd!");
+    } catch(e) {
+      alert("Fout bij importeren answer: " + e);
+    }
+  };
+
+  sendChat.onclick = () => {
+    const msg = chatInput.value.trim();
+    if (!msg) return;
+    try {
+      webrtc.send(msg);
+      logChat(msg, "Jij");
+      chatInput.value = "";
+    } catch(e) {
+      alert("Kan bericht niet versturen, DataChannel nog niet open");
+    }
+  };
+
+  chatInput.onkeydown = e => {
+    if(e.key === "Enter") sendChat.onclick();
+  };
+})();
+</script>
+
+</body>
+</html>
