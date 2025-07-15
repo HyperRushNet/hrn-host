@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head><title>Game</title></head>
+<body>
+<h1>Game (Peer 2)</h1>
+
+<label>Offer SDP plakken:</label><br>
+<textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
+
+<label>Offer ICE Candidates plakken (JSON array):</label><br>
+<textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
+
+<button id="createAnswer">Maak Answer + verzamel ICE</button><br><br>
+
+<label>Answer SDP:</label><br>
+<textarea id="answerSDP" style="width:100%; height:120px;" readonly></textarea><br><br>
+
+<label>Answer ICE Candidates (JSON array):</label><br>
+<textarea id="answerICE" style="width:100%; height:80px;" readonly></textarea><br><br>
+
+<p>Ontvangen data:<br><pre id="log"></pre></p>
+
+<script>
+  let pc = null;
+  let dc = null;
+  const logElem = document.getElementById('log');
+
+  function log(msg){
+    logElem.textContent += msg + "\n";
+  }
+
+  let answerCandidates = [];
+
+  async function addOfferICE(){
+    const candidates = JSON.parse(document.getElementById('offerICE').value || '[]');
+    for(const c of candidates){
+      await pc.addIceCandidate(new RTCIceCandidate(c));
+    }
+    log("Offer ICE candidates toegevoegd");
+  }
+
+  document.getElementById('createAnswer').onclick = async () => {
+    if(pc) return;
+
+    pc = new RTCPeerConnection();
+    answerCandidates = [];
+
+    const offer = JSON.parse(document.getElementById('offerSDP').value);
+    await pc.setRemoteDescription(offer);
+
+    pc.onicecandidate = e => {
+      if(e.candidate) {
+        answerCandidates.push(e.candidate.toJSON());
+        document.getElementById('answerICE').value = JSON.stringify(answerCandidates, null, 2);
+      }
+    };
+
+    pc.ondatachannel = event => {
+      dc = event.channel;
+      dc.onopen = () => log("DataChannel open!");
+      dc.onmessage = e => {
+        log("Ontvangen: " + e.data);
+        if (e.data === "jump") {
+          log("Speler springt!");
+          dc.send("Feedback: speler is gesprongen!");
+        } else if (e.data === "attack") {
+          log("Speler valt aan!");
+          dc.send("Feedback: speler heeft aangevallen!");
+        } else {
+          dc.send("Feedback: onbekende actie ontvangen.");
+        }
+      };
+    };
+
+    await addOfferICE();
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
+    log("Answer gemaakt");
+  };
+</script>
+</body>
+</html>
