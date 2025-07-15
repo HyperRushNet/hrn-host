@@ -3,32 +3,37 @@
 <head>
   <title>WebRTC Peer</title>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    textarea { width: 100%; height: 120px; }
+    button, input { font-size: 1rem; margin: 0.3rem 0; }
+    body { font-family: sans-serif; padding: 1rem; background: #111; color: #0f0; }
+    pre { background: #000; padding: 1rem; overflow-x: auto; }
+  </style>
 </head>
 <body>
-  <h1>WebRTC Peer (binaire string)</h1>
+  <h2>WebRTC Peer (mobiel/desktop, binaire uitwisseling)</h2>
 
-  <button id="makeOffer">Maak Offer + ICE</button><br><br>
+  <button id="makeOffer">Maak Offer + ICE</button><br>
+  <label>Offer (binaire string):</label><br>
+  <textarea id="offerCombined"></textarea><br>
 
-  <label>Gecombineerde Offer (binaire string):</label><br>
-  <textarea id="offerCombined" style="width:100%; height:120px;"></textarea><br><br>
+  <label>Plak binnenkomende Offer:</label><br>
+  <textarea id="remoteOfferCombined"></textarea><br>
 
-  <label>Plak binnenkomende Offer (binaire):</label><br>
-  <textarea id="remoteOfferCombined" style="width:100%; height:120px;"></textarea><br><br>
+  <button id="makeAnswer">Maak Answer + ICE</button><br>
+  <label>Answer (binaire string):</label><br>
+  <textarea id="answerCombined"></textarea><br>
 
-  <button id="makeAnswer">Maak Answer + ICE</button><br><br>
-
-  <label>Gecombineerde Answer (binaire string):</label><br>
-  <textarea id="answerCombined" style="width:100%; height:120px;"></textarea><br><br>
-
-  <label>Plak binnenkomende Answer (binaire):</label><br>
-  <textarea id="remoteAnswerCombined" style="width:100%; height:120px;"></textarea><br><br>
+  <label>Plak binnenkomende Answer:</label><br>
+  <textarea id="remoteAnswerCombined"></textarea><br>
 
   <button id="acceptAnswer">Plak Answer + ICE</button><br><br>
 
-  <input type="text" id="sendMsg" placeholder="Typ bericht..." />
+  <input type="text" id="sendMsg" placeholder="Typ bericht..." style="width:80%" />
   <button id="sendBtn">Stuur</button>
 
-  <pre id="log" style="background:#111;color:#0f0;padding:1rem;"></pre>
+  <pre id="log"></pre>
 
 <script>
 let pc, dc;
@@ -40,10 +45,10 @@ function log(msg) {
 
 function setupConnection(isInitiator) {
   pc = new RTCPeerConnection();
+  localICE = [];
+
   pc.onicecandidate = e => {
-    if (e.candidate) {
-      localICE.push(e.candidate.toJSON());
-    }
+    if (e.candidate) localICE.push(e.candidate.toJSON());
   };
 
   if (isInitiator) {
@@ -58,77 +63,81 @@ function setupConnection(isInitiator) {
 }
 
 function setupDataChannel() {
-  dc.onopen = () => log("DataChannel open!");
-  dc.onmessage = e => log("Peer: " + e.data);
-  dc.onclose = () => log("DataChannel gesloten");
+  dc.onopen = () => log("📶 Verbonden!");
+  dc.onmessage = e => log("👤 Peer: " + e.data);
+  dc.onclose = () => log("❌ Verbinding gesloten");
 }
 
-// Tekst → binaire string
 function textToBinary(str) {
   return [...str].map(c => c.charCodeAt(0).toString(2).padStart(16, '0')).join('');
 }
 
-// Binaire string → tekst
 function binaryToText(bin) {
   let out = '';
   for (let i = 0; i < bin.length; i += 16) {
-    const code = parseInt(bin.slice(i, i + 16), 2);
-    out += String.fromCharCode(code);
+    out += String.fromCharCode(parseInt(bin.slice(i, i + 16), 2));
   }
   return out;
 }
 
+async function waitForICEComplete() {
+  return new Promise(resolve => {
+    if (pc.iceGatheringState === 'complete') return resolve();
+    const check = () => {
+      if (pc.iceGatheringState === 'complete') {
+        pc.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      }
+    };
+    pc.addEventListener('icegatheringstatechange', check);
+  });
+}
+
 document.getElementById('makeOffer').onclick = async () => {
   setupConnection(true);
-  localICE = [];
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
+  await waitForICEComplete();
 
-  await new Promise(res => setTimeout(res, 1500));
-
-  const data = JSON.stringify({ sdp: pc.localDescription, ice: localICE });
-  document.getElementById('offerCombined').value = textToBinary(data);
+  const payload = JSON.stringify({ sdp: pc.localDescription, ice: localICE });
+  document.getElementById('offerCombined').value = textToBinary(payload);
 };
 
 document.getElementById('makeAnswer').onclick = async () => {
   setupConnection(false);
-  localICE = [];
 
-  const binary = document.getElementById('remoteOfferCombined').value;
-  const json = binaryToText(binary);
-  const { sdp, ice } = JSON.parse(json);
+  const input = document.getElementById('remoteOfferCombined').value;
+  const { sdp, ice } = JSON.parse(binaryToText(input));
 
   await pc.setRemoteDescription(sdp);
   for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
+  await waitForICEComplete();
 
-  await new Promise(res => setTimeout(res, 1500));
-
-  const data = JSON.stringify({ sdp: pc.localDescription, ice: localICE });
-  document.getElementById('answerCombined').value = textToBinary(data);
+  const payload = JSON.stringify({ sdp: pc.localDescription, ice: localICE });
+  document.getElementById('answerCombined').value = textToBinary(payload);
 };
 
 document.getElementById('acceptAnswer').onclick = async () => {
-  const binary = document.getElementById('remoteAnswerCombined').value;
-  const json = binaryToText(binary);
-  const { sdp, ice } = JSON.parse(json);
+  const input = document.getElementById('remoteAnswerCombined').value;
+  const { sdp, ice } = JSON.parse(binaryToText(input));
 
   await pc.setRemoteDescription(sdp);
   for (const c of ice) await pc.addIceCandidate(new RTCIceCandidate(c));
-  log("Verbonden met Answer");
+  log("✅ Verbonden met Answer");
 };
 
 document.getElementById('sendBtn').onclick = () => {
   const msg = document.getElementById('sendMsg').value;
   if (dc && dc.readyState === "open") {
     dc.send(msg);
-    log("Jij: " + msg);
+    log("🧍 Jij: " + msg);
     document.getElementById('sendMsg').value = "";
   } else {
-    log("DataChannel nog niet open");
+    log("⚠️ Kanaal niet open");
   }
 };
 </script>
