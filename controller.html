@@ -1,86 +1,105 @@
 <!DOCTYPE html>
 <html>
-<head><title>Controller</title></head>
+<head>
+  <title>Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    textarea, button { width: 100%; font-size: 16px; margin-top: 10px; }
+    #readyBlock { display: none; }
+  </style>
+</head>
 <body>
 <h1>Controller (Peer 1)</h1>
 
-<button id="startOffer">Maak aanbod (SDP + ICE)</button><br><br>
+<button id="startOffer">Maak verbindingsstring</button>
 
-<label>Plakbare verbindingsstring:</label><br>
-<textarea id="connectionString" style="width:100%; height:120px;" readonly></textarea><br><br>
+<div id="readyBlock">
+  <label>Verbindingsstring (voor Game):</label>
+  <textarea id="connectionString" readonly></textarea>
+  <button onclick="copyToClipboard('connectionString')">Kopieer verbindingsstring</button>
 
-<label>Answer string ontvangen:</label><br>
-<textarea id="answerString" style="width:100%; height:120px;"></textarea><br><br>
+  <label>Ontvangen antwoordstring:</label>
+  <textarea id="answerString"></textarea>
+  <button id="connect">Verbind met antwoord</button>
 
-<button id="connect">Verbind met antwoord</button><br><br>
+  <button id="sendJump">Stuur: Jump</button>
+  <button id="sendAttack">Stuur: Attack</button>
 
-<button id="sendJump">Jump</button>
-<button id="sendAttack">Attack</button>
-
-<p>Logs:<br><pre id="log"></pre></p>
+  <p>Logs:</p>
+  <pre id="log"></pre>
+</div>
 
 <script>
-  let pc = null, dc = null;
+  let pc, dc;
   let offerCandidates = [];
   const log = msg => logElem.textContent += msg + "\n";
-  const logElem = document.getElementById('log');
+  const logElem = document.getElementById("log");
+  const readyBlock = document.getElementById("readyBlock");
+
+  function copyToClipboard(id) {
+    const el = document.getElementById(id);
+    el.select();
+    document.execCommand("copy");
+  }
 
   function createPeerConnection() {
     pc = new RTCPeerConnection();
     dc = pc.createDataChannel("data");
 
-    dc.onopen = () => log("DataChannel open!");
-    dc.onmessage = e => log("Feedback: " + e.data);
+    dc.onopen = () => log("Kanaal open!");
+    dc.onmessage = e => log("Feedback van game: " + e.data);
 
     pc.onicecandidate = e => {
       if (e.candidate) {
         offerCandidates.push(e.candidate.toJSON());
-        updateCombinedString();
+        updateConnectionString();
       }
     };
   }
 
-  function updateCombinedString() {
-    const data = {
+  function updateConnectionString() {
+    const payload = {
       sdp: pc.localDescription,
       ice: offerCandidates
     };
-    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-    document.getElementById('connectionString').value = base64;
+    const string = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    document.getElementById("connectionString").value = string;
   }
 
-  document.getElementById('startOffer').onclick = async () => {
+  document.getElementById("startOffer").onclick = async () => {
     createPeerConnection();
     offerCandidates = [];
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
-    updateCombinedString();
-    log("Offer aangemaakt");
+    updateConnectionString();
+    log("Aanbod gegenereerd");
+    readyBlock.style.display = "block";
   };
 
-  document.getElementById('connect').onclick = async () => {
-    const raw = document.getElementById('answerString').value.trim();
-    if (!raw) return;
-
-    const json = JSON.parse(decodeURIComponent(escape(atob(raw))));
-    await pc.setRemoteDescription(json.sdp);
-    for (const c of json.ice) {
-      await pc.addIceCandidate(new RTCIceCandidate(c));
+  document.getElementById("connect").onclick = async () => {
+    try {
+      const raw = document.getElementById("answerString").value.replace(/\s+/g, '');
+      const decoded = JSON.parse(decodeURIComponent(escape(atob(raw))));
+      await pc.setRemoteDescription(decoded.sdp);
+      for (const c of decoded.ice) {
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      }
+      log("Verbonden met game");
+    } catch (e) {
+      log("Fout bij verbinden: " + e);
     }
-    log("Verbonden met answer");
   };
 
-  document.getElementById('sendJump').onclick = () => {
-    if (dc && dc.readyState === "open") {
+  document.getElementById("sendJump").onclick = () => {
+    if (dc?.readyState === "open") {
       dc.send("jump");
       log("Jump gestuurd");
     } else log("Kanaal niet open");
   };
 
-  document.getElementById('sendAttack').onclick = () => {
-    if (dc && dc.readyState === "open") {
+  document.getElementById("sendAttack").onclick = () => {
+    if (dc?.readyState === "open") {
       dc.send("attack");
       log("Attack gestuurd");
     } else log("Kanaal niet open");
