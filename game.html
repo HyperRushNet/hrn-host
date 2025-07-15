@@ -1,36 +1,32 @@
-<!DOCTYPE html>
-<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Game</title></head><body>
-<h2>Game</h2>
-<textarea id="in" placeholder="Plak verbindingsstring van Controller" style="width:100%;height:100px;"></textarea><br>
-<button onclick="start()">Verwerk + genereer antwoord</button><br><br>
-<textarea id="out" placeholder="Stuur deze terug naar Controller" style="width:100%;height:100px;"></textarea><br>
-<button onclick="copy('out')">Kopieer</button><br><pre id="log"></pre>
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>G</title></head><body>
+<h3>Game</h3>
+<textarea id="i" style="width:100%;height:100px" placeholder="Plak hier string van Controller"></textarea>
+<textarea id="o" style="width:100%;height:100px" placeholder="Output terugsturen"></textarea>
+<pre id="l"></pre>
 <script>
-let pc, dc, cands=[];
-function log(t){document.getElementById('log').textContent+=t+'\n'}
-function copy(id){const t=document.getElementById(id);t.select();document.execCommand('copy')}
-function start(){
-  const d=JSON.parse(atob(document.getElementById('in').value.replace(/\s+/g,'')));
-  pc=new RTCPeerConnection(); cands=[];
-  pc.onicecandidate=e=>{if(e.candidate){cands.push(e.candidate.toJSON());output()}}
-  pc.ondatachannel=e=>{
-    dc=e.channel;
-    dc.onopen=()=>log("open");
-    dc.onmessage=ev=>{
-      log("<< "+ev.data);
-      if(ev.data=="jump")dc.send("gesprongen");
-      else if(ev.data=="attack")dc.send("aanval");
-      else dc.send("?");
-    }
-  };
-  pc.setRemoteDescription(d.s).then(()=>{
-    d.c.forEach(c=>pc.addIceCandidate(new RTCIceCandidate(c)))
-    return pc.createAnswer()
-  }).then(a=>pc.setLocalDescription(a))
-}
-function output(){
-  const s=JSON.stringify({s:pc.localDescription, c:cands});
-  document.getElementById('out').value=btoa(s)
-}
-</script>
-</body></html>
+let log=t=>l.textContent+=t+"\n",l=document.getElementById('l'),c=[],p,d;
+let i=document.getElementById("i"),o=document.getElementById("o");
+i.oninput=()=>{
+try{
+let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
+p=new RTCPeerConnection();
+p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),y()};
+p.ondatachannel=e=>{
+  d=e.channel;
+  d.onopen=()=>log("🟢 Open");
+  d.onmessage=ev=>{
+    log("⬅️ "+ev.data);
+    let r="?",m=ev.data;
+    if(m=="jump")r="gesprongen";
+    else if(m=="attack")r="aanval";
+    d.send(r); log("➡️ "+r);
+  }
+};
+p.setRemoteDescription(j.s).then(()=>{
+  j.c.forEach(i=>p.addIceCandidate(new RTCIceCandidate(i)))
+  return p.createAnswer()
+}).then(a=>p.setLocalDescription(a))
+}catch(e){}
+};
+let y=()=>o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
+</script></body></html>
