@@ -4,29 +4,33 @@
 <textarea id="o" style="width:100%;height:100px" placeholder="Terug naar controller"></textarea>
 <pre id="l"></pre>
 <script>
-let log=t=>l.textContent+=t+"\n",l=document.getElementById("l");
-let i=document.getElementById("i"),o=document.getElementById("o"),p,d,c=[];
+let log=t=>l.textContent+=t+"\n", l=document.getElementById("l");
+let i=document.getElementById("i"), o=document.getElementById("o"), c=[], p, dc;
 i.oninput=()=>{try{
   let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
+  if(p)return; // al verbonden
   p=new RTCPeerConnection({
     iceServers:[],
     iceTransportPolicy:"all",
     iceCandidatePoolSize:0
   });
-  p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),o.value=btoa(JSON.stringify({s:p.localDescription,c:c}))};
+  p.onicecandidate=e=>{
+    if(e.candidate)c.push(e.candidate.toJSON());
+    else o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
+  };
   p.ondatachannel=e=>{
-    d=e.channel;
-    d.onopen=()=>log("🟢 Open");
-    d.onmessage=ev=>{
+    dc=e.channel;
+    dc.onopen=()=>log("🟢 Verbonden");
+    dc.onmessage=ev=>{
       let m=ev.data;
       log("⬅️ "+m);
       let r=m=="jump"?"gesprongen":m=="attack"?"aanval":"?";
-      d.send(r); log("➡️ "+r);
-    }
+      dc.send(r); log("➡️ "+r);
+    };
   };
   p.setRemoteDescription(j.s).then(()=>{
-    j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)))
-    return p.createAnswer()
-  }).then(a=>p.setLocalDescription(a))
+    j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)));
+    return p.createAnswer();
+  }).then(a=>p.setLocalDescription(a));
 }catch{}};
 </script></body></html>
