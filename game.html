@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html>
-<head><title>Game</title></head>
+<head>
+  <title>Game</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
 <body>
 <h1>Game (Peer 2)</h1>
 
-<label>Offer SDP plakken:</label><br>
-<textarea id="offerSDP" style="width:100%; height:120px;"></textarea><br><br>
-
-<label>Offer ICE Candidates plakken (JSON array):</label><br>
-<textarea id="offerICE" style="width:100%; height:80px;"></textarea><br><br>
-
-<button id="createAnswer">Maak Answer + verzamel ICE</button><br><br>
+<label>Scan QR of plak connectie-string:</label><br>
+<textarea id="combinedString" style="width:100%; height:120px;"></textarea><br><br>
+<div id="reader" style="width: 300px;"></div><br>
+<button id="startCamera">Scan QR</button>
+<button id="connect">Verbind</button><br><br>
 
 <label>Answer SDP:</label><br>
 <textarea id="answerSDP" style="width:100%; height:120px;" readonly></textarea><br><br>
-
-<label>Answer ICE Candidates (JSON array):</label><br>
+<label>Answer ICE:</label><br>
 <textarea id="answerICE" style="width:100%; height:80px;" readonly></textarea><br><br>
 
 <p>Ontvangen data:<br><pre id="log"></pre></p>
@@ -23,30 +23,32 @@
 <script>
   let pc = null;
   let dc = null;
+  let answerCandidates = [];
   const logElem = document.getElementById('log');
 
-  function log(msg){
-    logElem.textContent += msg + "\n";
-  }
+  function log(msg){ logElem.textContent += msg + "\n"; }
 
-  let answerCandidates = [];
+  document.getElementById('startCamera').onclick = () => {
+    const qr = new Html5Qrcode("reader");
+    qr.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      (decodedText) => {
+        qr.stop();
+        document.getElementById("combinedString").value = decodedText;
+        log("QR gescand!");
+      },
+      (errorMessage) => {}
+    );
+  };
 
-  async function addOfferICE(){
-    const candidates = JSON.parse(document.getElementById('offerICE').value || '[]');
-    for(const c of candidates){
-      await pc.addIceCandidate(new RTCIceCandidate(c));
-    }
-    log("Offer ICE candidates toegevoegd");
-  }
-
-  document.getElementById('createAnswer').onclick = async () => {
+  document.getElementById('connect').onclick = async () => {
     if(pc) return;
-
+    const data = JSON.parse(document.getElementById('combinedString').value);
     pc = new RTCPeerConnection();
     answerCandidates = [];
 
-    const offer = JSON.parse(document.getElementById('offerSDP').value);
-    await pc.setRemoteDescription(offer);
+    await pc.setRemoteDescription(data.sdp);
 
     pc.onicecandidate = e => {
       if(e.candidate) {
@@ -61,24 +63,23 @@
       dc.onmessage = e => {
         log("Ontvangen: " + e.data);
         if (e.data === "jump") {
-          log("Speler springt!");
-          dc.send("Feedback: speler is gesprongen!");
+          dc.send("Speler sprong!");
         } else if (e.data === "attack") {
-          log("Speler valt aan!");
-          dc.send("Feedback: speler heeft aangevallen!");
+          dc.send("Speler viel aan!");
         } else {
-          dc.send("Feedback: onbekende actie ontvangen.");
+          dc.send("Onbekend commando");
         }
       };
     };
 
-    await addOfferICE();
+    for(const c of data.ice){
+      await pc.addIceCandidate(new RTCIceCandidate(c));
+    }
 
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
     document.getElementById('answerSDP').value = JSON.stringify(pc.localDescription);
-    log("Answer gemaakt");
+    log("Verbonden en answer gegenereerd");
   };
 </script>
 </body>
