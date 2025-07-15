@@ -28,77 +28,72 @@
 <p>Logs:<br><pre id="log"></pre></p>
 
 <script>
-  let pc = null;
-  let dc = null;
-  let offerCandidates = [];
-  const logElem = document.getElementById('log');
+let pc = null, dc = null, offerCandidates = [];
+const logElem = document.getElementById('log');
 
-  function log(msg){ logElem.textContent += msg + "\n"; }
+function log(msg){ logElem.textContent += msg + "\n"; }
 
-  function createPeerConnection() {
-    pc = new RTCPeerConnection();
-    dc = pc.createDataChannel("data");
-    dc.onopen = () => log("DataChannel open!");
-    dc.onmessage = e => log("Feedback: " + e.data);
-    pc.onicecandidate = e => {
-      if(e.candidate) {
-        offerCandidates.push(e.candidate.toJSON());
-        updateCombinedString();
-      }
-    };
+function createPeerConnection() {
+  pc = new RTCPeerConnection();
+  dc = pc.createDataChannel("data");
+  dc.onopen = () => log("DataChannel open!");
+  dc.onmessage = e => log("Feedback: " + e.data);
+  pc.onicecandidate = e => {
+    if(e.candidate) {
+      offerCandidates.push(e.candidate.toJSON());
+      updateCombinedString();
+    }
+  };
+}
+
+function updateCombinedString() {
+  const combined = { sdp: pc.localDescription, ice: offerCandidates };
+  const jsonStr = JSON.stringify(combined); // minified
+  const base64 = btoa(jsonStr);
+  document.getElementById('combinedString').value = base64;
+  document.getElementById('qrcode').innerHTML = "";
+  new QRCode(document.getElementById("qrcode"), {
+    text: base64,
+    width: 256,
+    height: 256
+  });
+}
+
+document.getElementById('startOffer').onclick = async () => {
+  createPeerConnection();
+  offerCandidates = [];
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  log("Offer gemaakt");
+};
+
+document.getElementById('acceptAnswer').onclick = async () => {
+  const answer = JSON.parse(document.getElementById('answerSDP').value);
+  await pc.setRemoteDescription(answer);
+  const candidates = JSON.parse(document.getElementById('answerICE').value);
+  for(const c of candidates){
+    await pc.addIceCandidate(new RTCIceCandidate(c));
   }
+  log("Answer + ICE toegevoegd");
+};
 
-  function updateCombinedString() {
-    const offerSDP = pc.localDescription;
-    const combined = {
-      sdp: offerSDP,
-      ice: offerCandidates
-    };
-    const jsonStr = JSON.stringify(combined);
-    document.getElementById('combinedString').value = jsonStr;
-    document.getElementById('qrcode').innerHTML = "";
-    new QRCode(document.getElementById("qrcode"), {
-      text: jsonStr,
-      width: 256,
-      height: 256
-    });
+document.getElementById('sendJump').onclick = () => {
+  if(dc && dc.readyState === 'open'){
+    dc.send("jump");
+    log("Jump gestuurd");
+  } else {
+    log("DataChannel niet open");
   }
+};
 
-  document.getElementById('startOffer').onclick = async () => {
-    createPeerConnection();
-    offerCandidates = [];
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    log("Offer gemaakt");
-  };
-
-  document.getElementById('acceptAnswer').onclick = async () => {
-    const answer = JSON.parse(document.getElementById('answerSDP').value);
-    await pc.setRemoteDescription(answer);
-    const candidates = JSON.parse(document.getElementById('answerICE').value);
-    for(const c of candidates){
-      await pc.addIceCandidate(new RTCIceCandidate(c));
-    }
-    log("Answer + ICE toegevoegd");
-  };
-
-  document.getElementById('sendJump').onclick = () => {
-    if(dc && dc.readyState === 'open'){
-      dc.send("jump");
-      log("Jump gestuurd");
-    } else {
-      log("DataChannel niet open");
-    }
-  };
-
-  document.getElementById('sendAttack').onclick = () => {
-    if(dc && dc.readyState === 'open'){
-      dc.send("attack");
-      log("Attack gestuurd");
-    } else {
-      log("DataChannel niet open");
-    }
-  };
+document.getElementById('sendAttack').onclick = () => {
+  if(dc && dc.readyState === 'open'){
+    dc.send("attack");
+    log("Attack gestuurd");
+  } else {
+    log("DataChannel niet open");
+  }
+};
 </script>
 </body>
 </html>
