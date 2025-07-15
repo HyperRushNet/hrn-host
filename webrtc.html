@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WebRTC werkende DataChannel met snelle signaling</title>
+<title>WebRTC DataChannel + Video met snelle signaling</title>
 <style>
   body { font-family: monospace; background:#111; color:#eee; padding:1rem; }
   video { width: 45%; background:#222; margin:0.5rem; border: 2px solid #444; vertical-align: top; }
@@ -15,7 +15,7 @@
 </head>
 <body>
 
-<h2>WebRTC DataChannel & Video met snelle signaling en gegarandeerde open</h2>
+<h2>WebRTC DataChannel + Video met snelle signaling</h2>
 
 <div>
   <video id="localVideo" autoplay muted playsinline></video>
@@ -72,7 +72,7 @@
     chat.scrollTop = chat.scrollHeight;
   }
 
-  function createPeerConnection() {
+  function createPeerConnection(isCaller) {
     pc = new RTCPeerConnection(config);
 
     if (localVideo.srcObject) {
@@ -85,17 +85,24 @@
       }
     };
 
-    // DataChannel events voor de answerer (peer die offer ontvangt)
-    pc.ondatachannel = e => {
-      dataChannel = e.channel;
-      setupDataChannel();
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE connection state:", pc.iceConnectionState);
     };
+
+    // DataChannel ontvangen als callee
+    if (!isCaller) {
+      pc.ondatachannel = e => {
+        dataChannel = e.channel;
+        setupDataChannel();
+      };
+    }
   }
 
   function setupDataChannel() {
     dataChannel.onopen = () => logChat("DataChannel open!", "System");
     dataChannel.onmessage = e => logChat(e.data, "Peer");
     dataChannel.onclose = () => logChat("DataChannel gesloten", "System");
+    dataChannel.onerror = e => console.error("DataChannel error:", e);
   }
 
   function updateLocalDescriptionOutput(textarea) {
@@ -119,9 +126,9 @@
   }
 
   createOfferBtn.onclick = async () => {
-    createPeerConnection();
+    createPeerConnection(true);
 
-    // Maak DataChannel als caller
+    // Caller maakt DataChannel
     dataChannel = pc.createDataChannel("chat");
     setupDataChannel();
 
@@ -137,7 +144,7 @@
   acceptOfferBtn.onclick = async () => {
     const offerText = offerInput.value;
     if (!offerText) return alert("Plak eerst de offer JSON");
-    createPeerConnection();
+    createPeerConnection(false);
 
     try {
       const offerDesc = new RTCSessionDescription(JSON.parse(offerText));
