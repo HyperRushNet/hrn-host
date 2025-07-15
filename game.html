@@ -1,32 +1,32 @@
 <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>G</title></head><body>
 <h3>Game</h3>
-<textarea id="i" style="width:100%;height:100px" placeholder="Plak hier string van Controller"></textarea>
-<textarea id="o" style="width:100%;height:100px" placeholder="Output terugsturen"></textarea>
+<textarea id="i" style="width:100%;height:100px" placeholder="Plak string"></textarea>
+<textarea id="o" style="width:100%;height:100px" placeholder="Terug naar controller"></textarea>
 <pre id="l"></pre>
 <script>
-let log=t=>l.textContent+=t+"\n",l=document.getElementById('l'),c=[],p,d;
-let i=document.getElementById("i"),o=document.getElementById("o");
-i.oninput=()=>{
-try{
-let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
-p=new RTCPeerConnection();
-p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),y()};
-p.ondatachannel=e=>{
-  d=e.channel;
-  d.onopen=()=>log("🟢 Open");
-  d.onmessage=ev=>{
-    log("⬅️ "+ev.data);
-    let r="?",m=ev.data;
-    if(m=="jump")r="gesprongen";
-    else if(m=="attack")r="aanval";
-    d.send(r); log("➡️ "+r);
-  }
-};
-p.setRemoteDescription(j.s).then(()=>{
-  j.c.forEach(i=>p.addIceCandidate(new RTCIceCandidate(i)))
-  return p.createAnswer()
-}).then(a=>p.setLocalDescription(a))
-}catch(e){}
-};
-let y=()=>o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
+let log=t=>l.textContent+=t+"\n",l=document.getElementById("l");
+let i=document.getElementById("i"),o=document.getElementById("o"),p,d,c=[];
+i.oninput=()=>{try{
+  let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
+  p=new RTCPeerConnection({
+    iceServers:[],
+    iceTransportPolicy:"all",
+    iceCandidatePoolSize:0
+  });
+  p.onicecandidate=e=>{if(e.candidate)c.push(e.candidate.toJSON()),o.value=btoa(JSON.stringify({s:p.localDescription,c:c}))};
+  p.ondatachannel=e=>{
+    d=e.channel;
+    d.onopen=()=>log("🟢 Open");
+    d.onmessage=ev=>{
+      let m=ev.data;
+      log("⬅️ "+m);
+      let r=m=="jump"?"gesprongen":m=="attack"?"aanval":"?";
+      d.send(r); log("➡️ "+r);
+    }
+  };
+  p.setRemoteDescription(j.s).then(()=>{
+    j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)))
+    return p.createAnswer()
+  }).then(a=>p.setLocalDescription(a))
+}catch{}};
 </script></body></html>
