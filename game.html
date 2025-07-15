@@ -1,76 +1,97 @@
 <!DOCTYPE html>
 <html>
-<head><title>Game</title></head>
+<head>
+  <title>Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    textarea, button { width: 100%; font-size: 16px; margin-top: 10px; }
+    #readyBlock { display: none; }
+  </style>
+</head>
 <body>
 <h1>Game (Peer 2)</h1>
 
-<label>Verbindingsstring van controller plakken:</label><br>
-<textarea id="offerString" style="width:100%; height:120px;"></textarea><br><br>
+<label>Verbindingsstring van controller plakken:</label>
+<textarea id="offerString"></textarea>
+<button id="maakAntwoord">Genereer antwoord</button>
 
-<button id="maakAntwoord">Maak Answer en geef terugstring</button><br><br>
+<div id="readyBlock">
+  <label>Plak deze string terug in controller:</label>
+  <textarea id="answerString" readonly></textarea>
+  <button onclick="copyToClipboard('answerString')">Kopieer antwoordstring</button>
 
-<label>Plakbare antwoordstring (voor controller):</label><br>
-<textarea id="answerString" style="width:100%; height:120px;" readonly></textarea><br><br>
-
-<p>Logs:<br><pre id="log"></pre></p>
+  <p>Logs:</p>
+  <pre id="log"></pre>
+</div>
 
 <script>
-  let pc = null, dc = null;
+  let pc, dc;
   let answerCandidates = [];
   const log = msg => logElem.textContent += msg + "\n";
-  const logElem = document.getElementById('log');
+  const logElem = document.getElementById("log");
+  const readyBlock = document.getElementById("readyBlock");
 
-  document.getElementById('maakAntwoord').onclick = async () => {
-    const raw = document.getElementById('offerString').value.trim();
-    if (!raw) return;
+  function copyToClipboard(id) {
+    const el = document.getElementById(id);
+    el.select();
+    document.execCommand("copy");
+  }
 
-    const parsed = JSON.parse(decodeURIComponent(escape(atob(raw))));
-    pc = new RTCPeerConnection();
-    answerCandidates = [];
+  document.getElementById("maakAntwoord").onclick = async () => {
+    try {
+      const raw = document.getElementById("offerString").value.replace(/\s+/g, '');
+      const decoded = JSON.parse(decodeURIComponent(escape(atob(raw))));
 
-    pc.onicecandidate = e => {
-      if (e.candidate) {
-        answerCandidates.push(e.candidate.toJSON());
-        updateAnswerString();
-      }
-    };
+      pc = new RTCPeerConnection();
+      answerCandidates = [];
 
-    pc.ondatachannel = e => {
-      dc = e.channel;
-      dc.onopen = () => log("DataChannel open!");
-      dc.onmessage = ev => {
-        log("Ontvangen: " + ev.data);
-        if (ev.data === "jump") {
-          log("Speler springt");
-          dc.send("Gesprongen");
-        } else if (ev.data === "attack") {
-          log("Speler valt aan");
-          dc.send("Aanval uitgevoerd");
-        } else {
-          dc.send("Onbekend commando");
+      pc.onicecandidate = e => {
+        if (e.candidate) {
+          answerCandidates.push(e.candidate.toJSON());
+          updateAnswerString();
         }
       };
-    };
 
-    await pc.setRemoteDescription(parsed.sdp);
-    for (const c of parsed.ice) {
-      await pc.addIceCandidate(new RTCIceCandidate(c));
+      pc.ondatachannel = e => {
+        dc = e.channel;
+        dc.onopen = () => log("Kanaal open!");
+        dc.onmessage = ev => {
+          log("Ontvangen: " + ev.data);
+          if (ev.data === "jump") {
+            log("Game: speler springt");
+            dc.send("Gesprongen!");
+          } else if (ev.data === "attack") {
+            log("Game: speler valt aan");
+            dc.send("Aanval uitgevoerd!");
+          } else {
+            dc.send("Onbekend commando");
+          }
+        };
+      };
+
+      await pc.setRemoteDescription(decoded.sdp);
+      for (const c of decoded.ice) {
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+      }
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      updateAnswerString();
+      log("Antwoord gegenereerd");
+      readyBlock.style.display = "block";
+
+    } catch (e) {
+      log("Fout bij verwerken verbindingsstring: " + e);
     }
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    updateAnswerString();
-    log("Answer aangemaakt");
   };
 
   function updateAnswerString() {
-    const data = {
+    const payload = {
       sdp: pc.localDescription,
       ice: answerCandidates
     };
-    const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
-    document.getElementById('answerString').value = base64;
+    const string = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    document.getElementById("answerString").value = string;
   }
 </script>
 </body>
