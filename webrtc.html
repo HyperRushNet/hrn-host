@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WebRTC snelle signaling met automatische ICE update</title>
+<title>WebRTC werkende DataChannel met snelle signaling</title>
 <style>
   body { font-family: monospace; background:#111; color:#eee; padding:1rem; }
   video { width: 45%; background:#222; margin:0.5rem; border: 2px solid #444; vertical-align: top; }
@@ -15,14 +15,14 @@
 </head>
 <body>
 
-<h2>WebRTC snelle signaling met automatische ICE update</h2>
+<h2>WebRTC DataChannel & Video met snelle signaling en gegarandeerde open</h2>
 
 <div>
   <video id="localVideo" autoplay muted playsinline></video>
   <video id="remoteVideo" autoplay playsinline></video>
 </div>
 
-<h3>Stap 1: Genereer Offer (copy deze tekst en stuur naar peer)</h3>
+<h3>Stap 1: Genereer Offer (copy deze JSON en stuur naar peer)</h3>
 <textarea id="offerOutput" readonly></textarea><br/>
 <button id="createOfferBtn">Genereer Offer</button>
 
@@ -85,6 +85,7 @@
       }
     };
 
+    // DataChannel events voor de answerer (peer die offer ontvangt)
     pc.ondatachannel = e => {
       dataChannel = e.channel;
       setupDataChannel();
@@ -97,12 +98,10 @@
     dataChannel.onclose = () => logChat("DataChannel gesloten", "System");
   }
 
-  // Helper: update textarea met huidige localDescription JSON
   function updateLocalDescriptionOutput(textarea) {
     textarea.value = JSON.stringify(pc.localDescription);
   }
 
-  // ICE gathering finished flag
   function waitForIceGatheringComplete() {
     return new Promise(resolve => {
       if (pc.iceGatheringState === "complete") {
@@ -122,16 +121,15 @@
   createOfferBtn.onclick = async () => {
     createPeerConnection();
 
+    // Maak DataChannel als caller
     dataChannel = pc.createDataChannel("chat");
     setupDataChannel();
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    // Show direct offer JSON asap
     updateLocalDescriptionOutput(offerOutput);
 
-    // Update when ICE gathering complete
     await waitForIceGatheringComplete();
     updateLocalDescriptionOutput(offerOutput);
   };
