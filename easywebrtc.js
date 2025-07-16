@@ -26,7 +26,7 @@
   const encodeData = (desc, ice) => btoa(JSON.stringify({ s: desc, c: ice }));
   const decodeData = str => JSON.parse(atob(cleanBase64(str)));
 
-  async function initWebRTC(mode, name, { onConnect, onMessage, onDisconnect }) {
+  async function initWebRTC(mode, peerName, callbacks) {
     const pc = new RTCPeerConnection({
       iceServers: [],
       iceTransportPolicy: 'all',
@@ -35,11 +35,28 @@
 
     let dataChannel;
     const iceCandidates = [];
-    const peerId = Math.random().toString(36).slice(2, 8);
-    const peerName = name || (mode === 'peer' ? `Controller-${peerId}` : 'HOST');
+
+    function setupDataChannel(dc) {
+      dataChannel = dc;
+      dc.onopen = () => {
+        log(`🟢 Connected ${peerName}`);
+        callbacks?.onConnect?.(dc);
+      };
+      dc.onclose = () => {
+        log(`🔴 Disconnected ${peerName}`);
+        callbacks?.onDisconnect?.(dc);
+      };
+      dc.onmessage = e => {
+        log(`${peerName}: ${e.data}`);
+        callbacks?.onMessage?.(dc, peerName, e.data);
+      };
+    }
 
     if (mode === 'peer') {
-      dataChannel = pc.createDataChannel('ch-' + peerId, { ordered: false, maxRetransmits: 0 });
+      dataChannel = pc.createDataChannel('ch-' + Math.random().toString(36).slice(2, 6), {
+        ordered: false,
+        maxRetransmits: 0
+      });
       setupDataChannel(dataChannel);
     } else {
       pc.ondatachannel = e => setupDataChannel(e.channel);
@@ -51,38 +68,29 @@
       } else {
         const out = document.getElementById('output');
         if (out) out.value = encodeData(pc.localDescription, iceCandidates);
-        else log('📤 ICE complete (geen output element)');
+        log('📤 ICE complete');
       }
     };
 
-    function setupDataChannel(dc) {
-      dataChannel = dc;
-      dc.onopen = () => {
-        log(`🟢 CONNECTED ${peerName}`);
-        onConnect?.(dc, peerName);
-      };
-      dc.onclose = () => {
-        log(`🔴 DISCONNECTED ${peerName}`);
-        onDisconnect?.(dc, peerName);
-      };
-      dc.onmessage = e => {
-        log(`${peerName}: ${e.data}`);
-        onMessage?.(dc, peerName, e.data);
-      };
-      dc.label = peerName; // label = naam voor eenvoud
+    if (mode === 'peer') {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+    } else {
+      // Host waits for remote description before creating answer
     }
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
 
     window.easywebrtc_accept = async base64 => {
       try {
         const { s, c } = decodeData(base64);
-        await pc.setRemoteDescription(s);
-        for (const cand of c) await pc.addIceCandidate(new RTCIceCandidate(cand));
+        await pc.setRemoteDescription(new RTCSessionDescription(s));
+        for (const cand of c) {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        }
         if (mode === 'host') {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
+          const out = document.getElementById('output');
+          if (out) out.value = encodeData(pc.localDescription, iceCandidates);
         }
         log(`📥 ACCEPTED ${peerName}`);
       } catch (err) {
@@ -94,12 +102,14 @@
       window.easywebrtc_send = msg => {
         if (dataChannel?.readyState === 'open') {
           dataChannel.send(msg);
-          log(`${peerName}: ${msg}`);
+          log(`➡️ ${peerName}: ${msg}`);
         } else {
           log('❌ Send failed (not open)');
         }
       };
     }
+
+    return pc;
   }
 
   window.initWebRTC = initWebRTC;
