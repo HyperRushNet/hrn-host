@@ -4,8 +4,8 @@
 <textarea id="o" style="width:100%;height:100px" placeholder="Stuur deze terug"></textarea>
 <pre id="l"></pre>
 <script>
-let peers=[], channels=[], logQ=[], logB=false, lastLog="", l=document.getElementById("l");
-function log(t){ if(t!==lastLog){ logQ.push(t); lastLog=t; if(!logB) flush(); } }
+let peers=[], channels=[], logQ=[], logB=false, l=document.getElementById("l");
+function log(t){ logQ.push(t); if(!logB){ logB=true; flush(); } }
 function flush(){
   (typeof requestIdleCallback==='function'?requestIdleCallback:fn=>setTimeout(fn,0))(()=>{
     while(logQ.length) l.textContent+=logQ.shift()+"\n";
