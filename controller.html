@@ -6,13 +6,27 @@
 <button onclick="send('attack')">Attack</button>
 <pre id="l"></pre>
 <script>
-let log=t=>{if(t!==lastLog){l.textContent+=t+"\n"; lastLog=t}}, lastLog="";
-let l=document.getElementById("l"), p=new RTCPeerConnection({
-  iceServers:[], iceTransportPolicy:"all", iceCandidatePoolSize:0
-});
+let logQueue=[], logBusy=false, lastLog="", l=document.getElementById("l");
+function log(t){ if(t!==lastLog){ logQueue.push(t); lastLog=t; if(!logBusy) flushLog(); } }
+function flushLog(){
+  logBusy=true;
+  if(window.requestIdleCallback){
+    requestIdleCallback(()=>{
+      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
+      logBusy=false;
+    });
+  } else {
+    setTimeout(()=>{
+      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
+      logBusy=false;
+    },0);
+  }
+}
+
+let p=new RTCPeerConnection({iceServers:[], iceTransportPolicy:"all"});
 let c=[], dc=p.createDataChannel("d",{ordered:false,maxRetransmits:0});
 dc.onopen=()=>log("🟢 Verbonden");
-dc.onclose=()=>log("🔴 Verbinding verbroken");
+dc.onclose=()=>log("🔴 Verbroken");
 dc.onmessage=e=>log("⬅️ "+e.data);
 p.onicecandidate=e=>{
   if(e.candidate)c.push(e.candidate.toJSON());
@@ -29,7 +43,7 @@ function setRemote(j){
   j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)));
 }
 function send(m){
-  if(dc.readyState==="open")dc.send(m),log("➡️ "+m)
+  if(dc.readyState==="open"){ dc.send(m); log("➡️ "+m); }
   else log("❌ Niet verbonden");
 }
 </script></body></html>
