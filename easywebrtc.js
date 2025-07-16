@@ -1,5 +1,6 @@
 (() => {
-  const logQueue = [], logState = { busy: false };
+  const logQueue = [];
+  const logState = { busy: false };
   const logElement = document.getElementById('log') || (() => {
     const el = document.createElement('pre');
     el.id = 'log';
@@ -12,11 +13,10 @@
     logQueue.push(msg);
     if (!logState.busy) {
       logState.busy = true;
-      queueMicrotask(() => {
+      setTimeout(() => {
         while (logQueue.length) logElement.textContent += logQueue.shift() + '\n';
-        logElement.scrollTop = logElement.scrollHeight;
         logState.busy = false;
-      });
+      }, 0);
     }
   };
 
@@ -24,93 +24,107 @@
   const encode = (desc, ice) => btoa(JSON.stringify({ s: desc, c: ice }));
   const decode = str => JSON.parse(atob(clean(str)));
 
-  const peers = [], controllers = [];
+  const peers = {};
+  let hostMode = false;
 
-  function createPeer(mode, callbacks) {
-    const pc = new RTCPeerConnection({ iceServers: [] });
-    const ice = [];
-    let dc = null;
+  function initWebRTC(mode, { onConnect, onMessage, onDisconnect }) {
+    hostMode = (mode === 'host');
 
-    const id = Math.random().toString(36).slice(2, 8);
+    function createPeer() {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      const ice = [];
+      let dc;
+      const id = 'c-' + Math.random().toString(36).slice(2, 8);
 
-    if (mode === 'peer') {
-      dc = pc.createDataChannel('c-' + id, { ordered: false, maxRetransmits: 0 });
-      attachDC(dc, id);
-    } else {
-      pc.ondatachannel = e => attachDC(e.channel, id);
-    }
+      function setupDC(dataChannel) {
+        dc = dataChannel;
+        dc.onopen = () => log(`🟢 CONNECT ${id}`);
+        dc.onmessage = e => {
+          try {
+            const obj = JSON.parse(e.data);
+            if (obj.type === 'hello' && obj.name) {
+              dc.name = obj.name;
+              peers[id] = { id, name: obj.name, dc };
+              updateStatus();
+              onConnect?.(dc, id, obj.name);
+            } else {
+              onMessage?.(dc, e.data, id, dc.name);
+            }
+          } catch {
+            onMessage?.(dc, e.data, id, dc.name);
+          }
+        };
+        dc.onclose = () => {
+          log(`🔴 DISCONNECT ${id}`);
+          delete peers[id];
+          updateStatus();
+          onDisconnect?.(dc, id, dc.name);
+        };
+      }
 
-    pc.onicecandidate = e => {
-      if (e.candidate) ice.push(e.candidate.toJSON());
-      else document.getElementById('output').value = encode(pc.localDescription, ice);
-    };
+      return {
+        pc,
+        dc,
+        ice,
+        id,
+        setupDC,
+        offer: async () => {
+          if (!hostMode) {
+            dc = pc.createDataChannel(id, { ordered: false });
+            setupDC(dc);
+          } else {
+            pc.ondatachannel = e => setupDC(e.channel);
+          }
 
-    async function attachDC(channel, label) {
-      dc = channel;
-      dc.onopen = () => {
-        log('🟢 CONNECT ' + label);
-        if (mode === 'host') {
-          controllers.push(dc);
-          updateControllerUI();
+          pc.onicecandidate = e => {
+            if (e.candidate) ice.push(e.candidate.toJSON());
+            else document.getElementById('output').value = encode(pc.localDescription, ice);
+          };
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+        },
+        accept: async b64 => {
+          const { s, c } = decode(b64);
+          await pc.setRemoteDescription(s);
+          for (const i of c) await pc.addIceCandidate(new RTCIceCandidate(i));
+          if (hostMode) {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+          }
+          log(`📥 ACCEPTED ${id}`);
+        },
+        send: msg => {
+          if (dc?.readyState === 'open') dc.send(msg);
         }
-        callbacks.onConnect?.(dc, label);
       };
-      dc.onclose = () => {
-        log('🔴 DISCONNECT ' + label);
-        if (mode === 'host') {
-          const i = controllers.indexOf(dc);
-          if (i !== -1) controllers.splice(i, 1);
-          updateControllerUI();
-        }
-        callbacks.onDisconnect?.(dc, label);
+    }
+
+    const instance = createPeer();
+    instance.offer();
+
+    window.easywebrtc_accept = instance.accept;
+    if (!hostMode) {
+      window.easywebrtc_send = instance.send;
+      window.easywebrtc_hello = name => {
+        setTimeout(() => {
+          instance.send(JSON.stringify({ type: 'hello', name }));
+        }, 100);
       };
-      dc.onmessage = e => callbacks.onMessage?.(dc, e.data, label);
     }
 
-    async function generateOffer() {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+    function updateStatus() {
+      if (hostMode) {
+        const div = document.getElementById('controllers');
+        if (div) {
+          div.innerHTML = `<b>Verbonden controllers:</b> ${Object.keys(peers).length}<br>` +
+            Object.values(peers).map(p => `${p.name} (${p.id})`).join('<br>');
+        }
+      }
     }
 
-    generateOffer();
-
-    return {
-      id,
-      accept: async str => {
-        const { s, c } = decode(str);
-        await pc.setRemoteDescription(s);
-        for (const cand of c) await pc.addIceCandidate(new RTCIceCandidate(cand));
-        if (mode === 'host') {
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-        }
-        log('📥 ACCEPTED ' + id);
-      },
-      send: msg => {
-        if (dc?.readyState === 'open') {
-          dc.send(msg);
-          log('➡️ ' + msg);
-        } else {
-          log('❌ NOT OPEN');
-        }
-      },
-      getId: () => id,
-      getDC: () => dc
-    };
+    window.easywebrtc_peers = peers;
   }
 
-  function updateControllerUI() {
-    const list = document.getElementById('controllers');
-    if (list) {
-      list.innerHTML = controllers.map(dc => `<li>${dc.label || 'controller'}</li>`).join('');
-      document.getElementById('controllerCount').textContent = controllers.length;
-    }
-  }
-
-  window.initWebRTC = (mode, cb) => {
-    const peer = createPeer(mode, cb);
-    if (mode === 'peer') window.easywebrtc_send = peer.send;
-    window.easywebrtc_accept = peer.accept;
-    window.easywebrtc_id = peer.getId();
-  };
+  window.initWebRTC = initWebRTC;
 })();
