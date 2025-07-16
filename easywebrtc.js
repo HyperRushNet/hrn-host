@@ -1,122 +1,104 @@
-class EasyWebRTC {
-    constructor(config = {}) {
-        this.localVideo = config.localVideo;
-        this.remoteVideo = config.remoteVideo;
-        this.onData = config.onData || (() => {});
-        this.onConnect = config.onConnect || (() => {});
-        this.signaling = config.signaling || null;
-        this.peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-        this.channel = null;
-        this.pendingCandidates = [];
+(() => {
+  const isIdle = typeof requestIdleCallback === 'function';
+  const logElem = document.getElementById("log") || (() => {
+    const e = document.createElement("pre");
+    e.id = "log"; document.body.appendChild(e); return e;
+  })();
+  let logQ = [], logB = false;
+  function log(t) {
+    logQ.push(t);
+    if (!logB) { logB = true; flush(); }
+  }
+  function flush() {
+    (isIdle ? requestIdleCallback : f => setTimeout(f, 0))(() => {
+      while (logQ.length) logElem.textContent += logQ.shift() + "\n";
+      logB = false;
+    });
+  }
 
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-            this.localVideo && (this.localVideo.srcObject = stream);
-            stream.getTracks().forEach(track => this.peer.addTrack(track, stream));
-        });
+  function base64CleanInput(txt) {
+    return txt.replace(/\s/g, '');
+  }
 
-        this.peer.ontrack = e => {
-            this.remoteVideo && (this.remoteVideo.srcObject = e.streams[0]);
+  function encodeConnection(sdp, ice) {
+    return btoa(JSON.stringify({ s: sdp, c: ice }));
+  }
+
+  function decodeConnection(b64) {
+    return JSON.parse(atob(base64CleanInput(b64)));
+  }
+
+  function initWebRTC(mode, callbacks) {
+    if (mode === "host") initHost(callbacks);
+    else if (mode === "peer") initPeer(callbacks);
+    else throw new Error("Gebruik 'host' of 'peer'");
+  }
+
+  function initHost({ onMessage, onConnect, onDisconnect }) {
+    const connections = [];
+
+    window.acceptConnection = function (b64) {
+      try {
+        const data = decodeConnection(b64);
+        const pc = new RTCPeerConnection();
+        const ice = [];
+        pc.onicecandidate = e => {
+          if (e.candidate) ice.push(e.candidate.toJSON());
+          else document.getElementById("output").value = encodeConnection(pc.localDescription, ice);
         };
-
-        this.peer.onicecandidate = e => {
-            if (e.candidate) {
-                if (this.signaling) {
-                    this.signaling.send(JSON.stringify({ type: 'ice', candidate: e.candidate }));
-                } else {
-                    this.pendingCandidates.push(e.candidate);
-                }
-            }
+        pc.ondatachannel = e => {
+          const dc = e.channel;
+          dc.onopen = () => { log("🟢 Verbonden: " + dc.label); onConnect && onConnect(dc); };
+          dc.onclose = () => { log("🔴 Verbroken: " + dc.label); onDisconnect && onDisconnect(dc); };
+          dc.onmessage = ev => { log("⬅️ [" + dc.label + "]: " + ev.data); onMessage && onMessage(dc, ev.data); };
         };
+        pc.setRemoteDescription(data.s).then(() => {
+          data.c.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)));
+          return pc.createAnswer();
+        }).then(a => pc.setLocalDescription(a));
+        connections.push(pc);
+        log("👥 Nieuwe verbinding, totaal: " + connections.length);
+      } catch (e) {
+        log("❌ Fout bij connectie: " + e.message);
+      }
+    };
+  }
 
-        this.peer.ondatachannel = e => {
-            this.channel = e.channel;
-            this._setupChannel();
-        };
+  function initPeer({ onMessage, onConnect, onDisconnect }) {
+    const pc = new RTCPeerConnection();
+    const ice = [];
+    const dc = pc.createDataChannel("c-" + Math.random().toString(36).slice(2, 5), { ordered: false, maxRetransmits: 0 });
 
-        if (this.signaling) {
-            this.signaling.onmessage = async (msg) => {
-                let data = JSON.parse(msg.data);
-                if (data.type === 'offer') {
-                    await this.peer.setRemoteDescription(new RTCSessionDescription(data.offer));
-                    const answer = await this.peer.createAnswer();
-                    await this.peer.setLocalDescription(answer);
-                    this.signaling.send(JSON.stringify({ type: 'answer', answer }));
-                } else if (data.type === 'answer') {
-                    await this.peer.setRemoteDescription(new RTCSessionDescription(data.answer));
-                } else if (data.type === 'ice') {
-                    this.peer.addIceCandidate(new RTCIceCandidate(data.candidate));
-                }
-            };
-        }
-    }
+    dc.onopen = () => { log("🟢 Verbonden"); onConnect && onConnect(dc); };
+    dc.onclose = () => { log("🔴 Verbroken"); onDisconnect && onDisconnect(dc); };
+    dc.onmessage = ev => { log("⬅️ " + ev.data); onMessage && onMessage(dc, ev.data); };
 
-    async call() {
-        this.channel = this.peer.createDataChannel("chat");
-        this._setupChannel();
-        const offer = await this.peer.createOffer();
-        await this.peer.setLocalDescription(offer);
-        if (this.signaling) {
-            this.signaling.send(JSON.stringify({ type: 'offer', offer }));
-        }
-    }
+    pc.onicecandidate = e => {
+      if (e.candidate) ice.push(e.candidate.toJSON());
+      else document.getElementById("output").value = encodeConnection(pc.localDescription, ice);
+    };
 
-    _setupChannel() {
-        this.channel.onopen = () => this.onConnect();
-        this.channel.onmessage = e => this.onData(e.data);
-    }
+    pc.createOffer().then(o => pc.setLocalDescription(o));
 
-    send(data) {
-        if (this.channel && this.channel.readyState === "open") {
-            this.channel.send(data);
-        }
-    }
+    window.acceptAnswer = function (b64) {
+      try {
+        const data = decodeConnection(b64);
+        pc.setRemoteDescription(data.s);
+        data.c.forEach(c => pc.addIceCandidate(new RTCIceCandidate(c)));
+      } catch (e) {
+        log("❌ Fout bij antwoord: " + e.message);
+      }
+    };
 
-    // ===== Handmatige fallback API =====
-    async exportOffer() {
-        this.channel = this.peer.createDataChannel("chat");
-        this._setupChannel();
-        const offer = await this.peer.createOffer();
-        await this.peer.setLocalDescription(offer);
-        return new Promise(resolve => {
-            const check = () => {
-                if (this.peer.iceGatheringState === "complete") {
-                    resolve(JSON.stringify({ offer: this.peer.localDescription }));
-                } else {
-                    setTimeout(check, 100);
-                }
-            };
-            check();
-        });
-    }
+    window.sendToHost = msg => {
+      if (dc.readyState === "open") {
+        dc.send(msg);
+        log("➡️ " + msg);
+      } else {
+        log("❌ Niet verbonden");
+      }
+    };
+  }
 
-    async importOffer(offerStr) {
-        const { offer } = JSON.parse(offerStr);
-        await this.peer.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await this.peer.createAnswer();
-        await this.peer.setLocalDescription(answer);
-        return new Promise(resolve => {
-            const check = () => {
-                if (this.peer.iceGatheringState === "complete") {
-                    resolve(JSON.stringify({ answer: this.peer.localDescription }));
-                } else {
-                    setTimeout(check, 100);
-                }
-            };
-            check();
-        });
-    }
-
-    async importAnswer(answerStr) {
-        const { answer } = JSON.parse(answerStr);
-        await this.peer.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-
-    async addIceCandidate(candidateStr) {
-        const cand = JSON.parse(candidateStr);
-        await this.peer.addIceCandidate(new RTCIceCandidate(cand));
-    }
-
-    getPendingIceCandidates() {
-        return this.pendingCandidates.map(c => JSON.stringify(c));
-    }
-}
+  window.initWebRTC = initWebRTC;
+})();
