@@ -1,130 +1,89 @@
 (() => {
-  const logQueue = [];
-  const logState = { busy: false };
-  const logElement = document.getElementById('log') || (() => {
-    const el = document.createElement('pre');
-    el.id = 'log';
-    el.style.cssText = 'padding:1em;background:#111;color:#0f0;font-family:monospace;white-space:pre-wrap;';
-    document.body.appendChild(el);
-    return el;
+  const logQ = [], busy = { v: false };
+  const logEl = document.getElementById('log') || (() => {
+    const e = document.createElement('pre');
+    e.id = 'log';
+    document.body.appendChild(e);
+    return e;
   })();
 
-  const log = msg => {
-    logQueue.push(msg);
-    if (!logState.busy) {
-      logState.busy = true;
-      setTimeout(() => {
-        while (logQueue.length) logElement.textContent += logQueue.shift() + '\n';
-        logState.busy = false;
-      }, 0);
+  function log(m) {
+    logQ.push(m);
+    if (!busy.v) {
+      busy.v = true;
+      queueMicrotask(() => {
+        while (logQ.length) logEl.textContent += logQ.shift() + '\n';
+        logEl.scrollTop = logEl.scrollHeight;
+        busy.v = false;
+      });
     }
-  };
-
-  const clean = str => str.replace(/\s+/g, '');
-  const encode = (desc, ice) => btoa(JSON.stringify({ s: desc, c: ice }));
-  const decode = str => JSON.parse(atob(clean(str)));
-
-  const peers = {};
-  let hostMode = false;
-
-  function initWebRTC(mode, { onConnect, onMessage, onDisconnect }) {
-    hostMode = (mode === 'host');
-
-    function createPeer() {
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      const ice = [];
-      let dc;
-      const id = 'c-' + Math.random().toString(36).slice(2, 8);
-
-      function setupDC(dataChannel) {
-        dc = dataChannel;
-        dc.onopen = () => log(`🟢 CONNECT ${id}`);
-        dc.onmessage = e => {
-          try {
-            const obj = JSON.parse(e.data);
-            if (obj.type === 'hello' && obj.name) {
-              dc.name = obj.name;
-              peers[id] = { id, name: obj.name, dc };
-              updateStatus();
-              onConnect?.(dc, id, obj.name);
-            } else {
-              onMessage?.(dc, e.data, id, dc.name);
-            }
-          } catch {
-            onMessage?.(dc, e.data, id, dc.name);
-          }
-        };
-        dc.onclose = () => {
-          log(`🔴 DISCONNECT ${id}`);
-          delete peers[id];
-          updateStatus();
-          onDisconnect?.(dc, id, dc.name);
-        };
-      }
-
-      return {
-        pc,
-        dc,
-        ice,
-        id,
-        setupDC,
-        offer: async () => {
-          if (!hostMode) {
-            dc = pc.createDataChannel(id, { ordered: false });
-            setupDC(dc);
-          } else {
-            pc.ondatachannel = e => setupDC(e.channel);
-          }
-
-          pc.onicecandidate = e => {
-            if (e.candidate) ice.push(e.candidate.toJSON());
-            else document.getElementById('output').value = encode(pc.localDescription, ice);
-          };
-
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-        },
-        accept: async b64 => {
-          const { s, c } = decode(b64);
-          await pc.setRemoteDescription(s);
-          for (const i of c) await pc.addIceCandidate(new RTCIceCandidate(i));
-          if (hostMode) {
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-          }
-          log(`📥 ACCEPTED ${id}`);
-        },
-        send: msg => {
-          if (dc?.readyState === 'open') dc.send(msg);
-        }
-      };
-    }
-
-    const instance = createPeer();
-    instance.offer();
-
-    window.easywebrtc_accept = instance.accept;
-    if (!hostMode) {
-      window.easywebrtc_send = instance.send;
-      window.easywebrtc_hello = name => {
-        setTimeout(() => {
-          instance.send(JSON.stringify({ type: 'hello', name }));
-        }, 100);
-      };
-    }
-
-    function updateStatus() {
-      if (hostMode) {
-        const div = document.getElementById('controllers');
-        if (div) {
-          div.innerHTML = `<b>Verbonden controllers:</b> ${Object.keys(peers).length}<br>` +
-            Object.values(peers).map(p => `${p.name} (${p.id})`).join('<br>');
-        }
-      }
-    }
-
-    window.easywebrtc_peers = peers;
   }
 
-  window.initWebRTC = initWebRTC;
+  const clean = s => s.replace(/\s+/g, '');
+  const enc = (s, ice) => btoa(JSON.stringify({ s, c: ice }));
+  const dec = x => JSON.parse(atob(clean(x)));
+
+  window.initWebRTC = async (mode, cb) => {
+    const pc = new RTCPeerConnection({ iceServers: [] });
+    const ice = [];
+    const id = 'id-' + Math.random().toString(36).slice(2, 8);
+    let dc;
+
+    const peers = {};
+
+    function bind(dc, id, name) {
+      dc.label = id;
+      dc.onopen = () => cb.onConnect({ dc, id, name });
+      dc.onmessage = e => {
+        const m = JSON.parse(e.data);
+        if (m.type === 'intro') {
+          dc.name = m.name;
+          peers[id] = { id, name: m.name, dc };
+          cb.onIntro(id, m.name);
+        } else {
+          cb.onMessage(id, dc.name || id, m.msg);
+        }
+      };
+      dc.onclose = () => {
+        delete peers[id];
+        cb.onDisconnect(id, dc.name || id);
+      };
+    }
+
+    if (mode === 'peer') {
+      dc = pc.createDataChannel(id);
+      bind(dc, id);
+    } else {
+      pc.ondatachannel = e => {
+        const ch = e.channel;
+        bind(ch, ch.label);
+      };
+    }
+
+    pc.onicecandidate = e => {
+      if (e.candidate) ice.push(e.candidate.toJSON());
+      else document.getElementById('output').value = enc(pc.localDescription, ice);
+    };
+
+    await pc.setLocalDescription(await pc.createOffer());
+
+    window.easywebrtc_accept = async x => {
+      const { s, c } = dec(x);
+      await pc.setRemoteDescription(s);
+      for (const cand of c) await pc.addIceCandidate(new RTCIceCandidate(cand));
+      if (mode === 'host') {
+        await pc.setLocalDescription(await pc.createAnswer());
+      }
+      log('📥 Connected');
+    };
+
+    if (mode === 'peer') window.easywebrtc_send = msg => {
+      try { dc.send(JSON.stringify({ type:'msg', msg })); }
+      catch{}
+    };
+    if (mode === 'peer') window.easywebrtc_intro = name => {
+      try { dc.send(JSON.stringify({ type:'intro', name })); }
+      catch{}
+    };
+  };
 })();
