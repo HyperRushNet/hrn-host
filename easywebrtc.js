@@ -1,163 +1,190 @@
 (() => {
   const logQueue = [];
-  const logState = { busy: false };
+  let logBusy = false;
   const logElement = document.getElementById('log') || (() => {
     const el = document.createElement('pre');
     el.id = 'log';
-    el.style.cssText = 'padding:1em;background:#111;color:#0f0;font-family:monospace;white-space:pre-wrap;max-height:200px;overflow:auto;';
+    el.style.cssText = 'padding:1em;background:#111;color:#0f0;font-family:monospace;white-space:pre-wrap;';
     document.body.appendChild(el);
     return el;
   })();
 
-  const log = msg => {
+  function log(msg) {
     logQueue.push(msg);
-    if (!logState.busy) {
-      logState.busy = true;
+    if (!logBusy) {
+      logBusy = true;
       setTimeout(() => {
         while (logQueue.length) {
           logElement.textContent += logQueue.shift() + '\n';
-          logElement.scrollTop = logElement.scrollHeight;
         }
-        logState.busy = false;
+        logBusy = false;
+        logElement.scrollTop = logElement.scrollHeight;
       }, 0);
     }
-  };
+  }
 
   const cleanBase64 = str => str.replace(/\s+/g, '');
   const encodeData = (desc, ice) => btoa(JSON.stringify({ s: desc, c: ice }));
   const decodeData = str => JSON.parse(atob(cleanBase64(str)));
 
-  // Host houdt alle peers bij
-  class Host {
-    constructor() {
-      this.connections = new Map();
-      this.onStatusUpdate = null;
-    }
+  // Generate random ID string
+  const randomID = () => Math.random().toString(36).slice(2, 8);
 
-    async createConnection(peerId, callbacks) {
+  async function initWebRTC(mode, { name, onConnect, onMessage, onDisconnect, onPeersChange }) {
+    if (!name) name = mode === 'host' ? 'HOST' : 'Controller-' + randomID();
+
+    if (mode === 'peer') {
+      // Peer (controller)
       const pc = new RTCPeerConnection({ iceServers: [] });
-      const iceCandidates = [];
-      let dataChannel;
+      const dcLabel = 'dc-' + randomID();
+      let dataChannel = pc.createDataChannel(dcLabel, { ordered: false, maxRetransmits: 0 });
 
-      pc.ondatachannel = e => {
-        dataChannel = e.channel;
-        dataChannel.onopen = () => {
-          log(`🟢 Connected ${peerId}`);
-          this.connections.set(peerId, { pc, dc: dataChannel });
-          this._updateStatus();
-          callbacks?.onConnect?.(dataChannel, peerId);
-        };
-        dataChannel.onclose = () => {
-          log(`🔴 Disconnected ${peerId}`);
-          this.connections.delete(peerId);
-          this._updateStatus();
-          callbacks?.onDisconnect?.(dataChannel, peerId);
-        };
-        dataChannel.onmessage = e => {
-          log(`${peerId}: ${e.data}`);
-          callbacks?.onMessage?.(dataChannel, peerId, e.data);
-        };
-      };
+      let iceCandidates = [];
+
+      function setupDataChannel(dc) {
+        dataChannel = dc;
+        dc.onopen = () => { log(`🟢 Connected (${name})`); onConnect?.(dc, name); };
+        dc.onclose = () => { log(`🔴 Disconnected (${name})`); onDisconnect?.(dc, name); };
+        dc.onmessage = e => { onMessage?.(dc, e.data, null, name); log(`${name}: ${e.data}`); };
+      }
+
+      setupDataChannel(dataChannel);
 
       pc.onicecandidate = e => {
         if (e.candidate) iceCandidates.push(e.candidate.toJSON());
         else {
-          // ICE complete
-          if (callbacks?.onIceComplete) callbacks.onIceComplete(encodeData(pc.localDescription, iceCandidates), peerId);
+          const out = document.getElementById('output');
+          if (out) out.value = encodeData(pc.localDescription, iceCandidates);
+          log('📤 ICE complete (offer)');
         }
       };
 
-      return { pc, iceCandidates };
-    }
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
 
-    async acceptOffer(peerId, offerB64, callbacks) {
-      if (this.connections.has(peerId)) {
-        log(`❌ Peer ${peerId} already connected`);
-        return;
+      window.easywebrtc_accept = async base64 => {
+        try {
+          const { s, c } = decodeData(base64);
+          await pc.setRemoteDescription(s);
+          for (const cand of c) await pc.addIceCandidate(new RTCIceCandidate(cand));
+          log('📥 ACCEPTED (answer)');
+        } catch (err) {
+          log('❌ Accept error: ' + err);
+        }
+      };
+
+      window.easywebrtc_send = msg => {
+        if (dataChannel?.readyState === 'open') {
+          dataChannel.send(msg);
+          log(`${name}: ${msg}`);
+        } else {
+          log('❌ Send failed (not open)');
+        }
+      };
+
+      return;
+
+    } else {
+      // Host (game) - accept multiple controllers
+      const pcs = new Map(); // id => { pc, dc, name }
+
+      let iceCandidatesMap = new Map();
+
+      async function createPeerConnection(id) {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        let iceCandidates = [];
+        let dc;
+
+        pc.ondatachannel = e => {
+          dc = e.channel;
+          dc.onopen = () => {
+            pcs.get(id).dc = dc;
+            log(`🟢 Connected (${pcs.get(id).name})`);
+            onConnect?.(dc, pcs.get(id).name, id);
+            onPeersChange?.(getPeers());
+          };
+          dc.onclose = () => {
+            log(`🔴 Disconnected (${pcs.get(id).name})`);
+            onDisconnect?.(dc, pcs.get(id).name, id);
+            pcs.delete(id);
+            onPeersChange?.(getPeers());
+          };
+          dc.onmessage = e => {
+            onMessage?.(dc, e.data, id, pcs.get(id).name);
+            log(`${pcs.get(id).name}: ${e.data}`);
+          };
+        };
+
+        pc.onicecandidate = e => {
+          if (e.candidate) iceCandidates.push(e.candidate.toJSON());
+          else {
+            iceCandidatesMap.set(id, iceCandidates);
+            const out = document.getElementById('output');
+            if (out) {
+              // Encode all pc offers+ices for all peers in JSON array
+              const allData = Array.from(pcs.entries()).map(([pid, p]) => ({
+                id: pid,
+                name: p.name,
+                offer: p.pc.localDescription,
+                ice: iceCandidatesMap.get(pid) || []
+              }));
+              out.value = btoa(JSON.stringify(allData));
+              log('📤 ICE complete (all peers)');
+            }
+          }
+        };
+
+        pcs.set(id, { pc, dc: null, name: name }); // name initially the host name until updated
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        return pc;
       }
 
-      const { s, c } = decodeData(offerB64);
-      const conn = await this.createConnection(peerId, callbacks);
-      await conn.pc.setRemoteDescription(new RTCSessionDescription(s));
-      for (const cand of c) await conn.pc.addIceCandidate(new RTCIceCandidate(cand));
-      const answer = await conn.pc.createAnswer();
-      await conn.pc.setLocalDescription(answer);
-      return encodeData(conn.pc.localDescription, conn.iceCandidates);
-    }
-
-    sendMessage(peerId, msg) {
-      const conn = this.connections.get(peerId);
-      if (conn && conn.dc.readyState === 'open') {
-        conn.dc.send(msg);
-        log(`➡️ ${peerId}: ${msg}`);
-      } else {
-        log(`❌ Send failed to ${peerId} (not open)`);
+      function getPeers() {
+        return Array.from(pcs.values()).map(p => p.name);
       }
-    }
 
-    _updateStatus() {
-      if (this.onStatusUpdate) {
-        const ids = [...this.connections.keys()];
-        this.onStatusUpdate(ids);
-      }
+      window.easywebrtc_accept = async base64 => {
+        try {
+          const allData = JSON.parse(atob(cleanBase64(base64)));
+          for (const { id, name: peerName, offer, ice } of allData) {
+            if (!pcs.has(id)) {
+              await createPeerConnection(id);
+              pcs.get(id).name = peerName || id;
+            }
+            const pc = pcs.get(id).pc;
+            await pc.setRemoteDescription(offer);
+            for (const cand of ice) await pc.addIceCandidate(new RTCIceCandidate(cand));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+          }
+          log('📥 ACCEPTED all peers');
+          onPeersChange?.(getPeers());
+        } catch (err) {
+          log('❌ Accept error: ' + err);
+        }
+      };
+
+      window.easywebrtc_send = (id, msg) => {
+        const dc = pcs.get(id)?.dc;
+        if (dc && dc.readyState === 'open') {
+          dc.send(msg);
+          log(`${pcs.get(id).name}: ${msg}`);
+        } else {
+          log(`❌ Send failed to ${id} (not open)`);
+        }
+      };
+
+      onPeersChange?.(getPeers());
+
+      window.getPeers = getPeers;
+
+      return;
     }
   }
 
-  // Peer (controller)
-  async function createPeer(peerName, callbacks) {
-    const pc = new RTCPeerConnection({ iceServers: [] });
-    const iceCandidates = [];
-
-    const dc = pc.createDataChannel('data-' + Math.random().toString(36).slice(2, 6), {
-      ordered: false,
-      maxRetransmits: 0
-    });
-
-    dc.onopen = () => {
-      log(`🟢 Connected ${peerName}`);
-      callbacks?.onConnect?.(dc);
-    };
-    dc.onclose = () => {
-      log(`🔴 Disconnected ${peerName}`);
-      callbacks?.onDisconnect?.(dc);
-    };
-    dc.onmessage = e => {
-      log(`${peerName}: ${e.data}`);
-      callbacks?.onMessage?.(dc, peerName, e.data);
-    };
-
-    pc.onicecandidate = e => {
-      if (e.candidate) iceCandidates.push(e.candidate.toJSON());
-      else {
-        if (callbacks?.onIceComplete) callbacks.onIceComplete(encodeData(pc.localDescription, iceCandidates));
-      }
-    };
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    async function acceptAnswer(answerB64) {
-      const { s, c } = decodeData(answerB64);
-      await pc.setRemoteDescription(new RTCSessionDescription(s));
-      for (const cand of c) await pc.addIceCandidate(new RTCIceCandidate(cand));
-      log(`📥 ACCEPTED ${peerName}`);
-    }
-
-    function send(msg) {
-      if (dc.readyState === 'open') {
-        dc.send(msg);
-        log(`➡️ ${peerName}: ${msg}`);
-      } else {
-        log('❌ Send failed (not open)');
-      }
-    }
-
-    return { acceptAnswer, send, pc };
-  }
-
-  window.EasyWebRTC = {
-    Host,
-    createPeer,
-    log,
-  };
+  window.initWebRTC = initWebRTC;
+  window.easywebrtc_log = log;
 })();
