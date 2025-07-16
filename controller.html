@@ -6,8 +6,8 @@
 <button onclick="send('attack')">Attack</button>
 <pre id="l"></pre>
 <script>
-let l=document.getElementById("l"), logQ=[], logB=false, lastLog="";
-function log(t){ if(t!==lastLog){ logQ.push(t); lastLog=t; if(!logB) flush(); } }
+let l=document.getElementById("l"), logQ=[], logB=false;
+function log(t){ logQ.push(t); if(!logB){ logB=true; flush(); } }
 function flush(){
   (typeof requestIdleCallback==='function'?requestIdleCallback:fn=>setTimeout(fn,0))(()=>{
     while(logQ.length) l.textContent+=logQ.shift()+"\n";
