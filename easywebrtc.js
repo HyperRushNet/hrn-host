@@ -50,7 +50,7 @@
       if (e.candidate) {
         iceCandidates.push(e.candidate.toJSON());
       } else {
-        const out = document.getElementById('output');
+        const out = document.getElementById('outputSignal');
         if (out) out.value = encodeData(pc.localDescription, iceCandidates);
         log('📤 ICE complete');
       }
@@ -91,6 +91,7 @@
         }
       };
     }
+    return { pc, dataChannel };
   }
 
   window.initWebRTC = initWebRTC;
