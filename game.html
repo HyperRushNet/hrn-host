@@ -1,49 +1,41 @@
-<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>G</title></head><body>
-<h3>Game</h3>
-<textarea id="i" style="width:100%;height:100px" placeholder="Plak string"></textarea>
-<textarea id="o" style="width:100%;height:100px" placeholder="Terug naar controller"></textarea>
+<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Game</title></head><body>
+<h3>Game Host</h3>
+<textarea id="i" style="width:100%;height:100px" placeholder="Plak controller connect string"></textarea>
+<textarea id="o" style="width:100%;height:100px" placeholder="Stuur deze terug"></textarea>
 <pre id="l"></pre>
 <script>
-let logQueue=[], logBusy=false, lastLog="", l=document.getElementById("l");
-function log(t){ if(t!==lastLog){ logQueue.push(t); lastLog=t; if(!logBusy) flushLog(); } }
-function flushLog(){
-  logBusy=true;
-  if(window.requestIdleCallback){
-    requestIdleCallback(()=>{
-      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
-      logBusy=false;
-    });
-  } else {
-    setTimeout(()=>{
-      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
-      logBusy=false;
-    },0);
-  }
+let peers=[], channels=[], logQ=[], logB=false, lastLog="", l=document.getElementById("l");
+function log(t){ if(t!==lastLog){ logQ.push(t); lastLog=t; if(!logB) flush(); } }
+function flush(){
+  logB=true;
+  (window.requestIdleCallback||setTimeout)(()=>{while(logQ.length)l.textContent+=logQ.shift()+"\n";logB=false},0);
 }
 
-let i=document.getElementById("i"), o=document.getElementById("o"), p, dc, c=[];
+let i=document.getElementById("i"), o=document.getElementById("o");
 i.oninput=()=>{try{
   let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
-  if(p)return;
-  p=new RTCPeerConnection({iceServers:[], iceTransportPolicy:"all"});
-  p.onicecandidate=e=>{
-    if(e.candidate)c.push(e.candidate.toJSON());
-    else o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
+  let pc=new RTCPeerConnection();
+  let chList=[], ice=[];
+  pc.onicecandidate=e=>{
+    if(e.candidate)ice.push(e.candidate.toJSON());
+    else o.value=btoa(JSON.stringify({s:pc.localDescription,c:ice}));
   };
-  p.ondatachannel=e=>{
-    dc=e.channel;
-    dc.onopen=()=>log("🟢 Verbonden");
-    dc.onclose=()=>log("🔴 Verbroken");
-    dc.onmessage=ev=>{
-      let m=ev.data;
-      log("⬅️ "+m);
-      let r=(m==="jump")?"gesprongen":(m==="attack")?"aanval":"?";
-      if(dc.readyState==="open") dc.send(r), log("➡️ "+r);
+  pc.ondatachannel=e=>{
+    let ch=e.channel;
+    ch.onopen=()=>log("🟢 Verbonden: "+ch.label);
+    ch.onclose=()=>log("🔴 Verbroken: "+ch.label);
+    ch.onmessage=ev=>{
+      log("⬅️ ["+ch.label+"]: "+ev.data);
+      let r=(ev.data==="jump")?"gesprongen":(ev.data==="attack")?"aanval":"?";
+      if(ch.readyState==="open") ch.send(r);
     };
+    channels.push(ch);
   };
-  p.setRemoteDescription(j.s).then(()=>{
-    j.c.forEach(k=>p.addIceCandidate(new RTCIceCandidate(k)));
-    return p.createAnswer();
-  }).then(a=>p.setLocalDescription(a));
-}catch{}};
+  pc.setRemoteDescription(j.s).then(()=>{
+    j.c.forEach(k=>pc.addIceCandidate(new RTCIceCandidate(k)));
+    return pc.createAnswer();
+  }).then(a=>pc.setLocalDescription(a));
+  peers.push(pc);
+  log("👥 Controller verbonden ("+peers.length+" totaal)");
+}catch(e){log("❌ Fout: "+e.message)}};
 </script></body></html>
