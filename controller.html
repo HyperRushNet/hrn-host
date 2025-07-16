@@ -8,14 +8,19 @@
 <script>
 let l=document.getElementById("l"), logQ=[], logB=false, lastLog="";
 function log(t){ if(t!==lastLog){ logQ.push(t); lastLog=t; if(!logB) flush(); } }
-function flush(){ logB=true; (window.requestIdleCallback||setTimeout)(()=>{while(logQ.length)l.textContent+=logQ.shift()+"\n";logB=false},0); }
+function flush(){
+  (typeof requestIdleCallback==='function'?requestIdleCallback:fn=>setTimeout(fn,0))(()=>{
+    while(logQ.length) l.textContent+=logQ.shift()+"\n";
+    logB=false;
+  });
+}
 
 let p=new RTCPeerConnection(), c=[], dc=p.createDataChannel("c-"+Math.random().toString(36).substr(2,4),{ordered:false,maxRetransmits:0});
 dc.onopen=()=>log("🟢 Verbonden");
 dc.onclose=()=>log("🔴 Verbroken");
 dc.onmessage=e=>log("⬅️ "+e.data);
 p.onicecandidate=e=>{
-  if(e.candidate)c.push(e.candidate.toJSON());
+  if(e.candidate) c.push(e.candidate.toJSON());
   else o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
 };
 p.createOffer().then(o=>p.setLocalDescription(o));
