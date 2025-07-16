@@ -7,17 +7,18 @@
 let peers=[], channels=[], logQ=[], logB=false, lastLog="", l=document.getElementById("l");
 function log(t){ if(t!==lastLog){ logQ.push(t); lastLog=t; if(!logB) flush(); } }
 function flush(){
-  logB=true;
-  (window.requestIdleCallback||setTimeout)(()=>{while(logQ.length)l.textContent+=logQ.shift()+"\n";logB=false},0);
+  (typeof requestIdleCallback==='function'?requestIdleCallback:fn=>setTimeout(fn,0))(()=>{
+    while(logQ.length) l.textContent+=logQ.shift()+"\n";
+    logB=false;
+  });
 }
 
 let i=document.getElementById("i"), o=document.getElementById("o");
 i.oninput=()=>{try{
   let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
-  let pc=new RTCPeerConnection();
-  let chList=[], ice=[];
+  let pc=new RTCPeerConnection(), ice=[];
   pc.onicecandidate=e=>{
-    if(e.candidate)ice.push(e.candidate.toJSON());
+    if(e.candidate) ice.push(e.candidate.toJSON());
     else o.value=btoa(JSON.stringify({s:pc.localDescription,c:ice}));
   };
   pc.ondatachannel=e=>{
