@@ -4,15 +4,28 @@
 <textarea id="o" style="width:100%;height:100px" placeholder="Terug naar controller"></textarea>
 <pre id="l"></pre>
 <script>
-let log=t=>{if(t!==lastLog){l.textContent+=t+"\n"; lastLog=t}}, lastLog="";
-let i=document.getElementById("i"), o=document.getElementById("o"), l=document.getElementById("l");
-let c=[], p, dc;
+let logQueue=[], logBusy=false, lastLog="", l=document.getElementById("l");
+function log(t){ if(t!==lastLog){ logQueue.push(t); lastLog=t; if(!logBusy) flushLog(); } }
+function flushLog(){
+  logBusy=true;
+  if(window.requestIdleCallback){
+    requestIdleCallback(()=>{
+      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
+      logBusy=false;
+    });
+  } else {
+    setTimeout(()=>{
+      while(logQueue.length)l.textContent+=logQueue.shift()+"\n";
+      logBusy=false;
+    },0);
+  }
+}
+
+let i=document.getElementById("i"), o=document.getElementById("o"), p, dc, c=[];
 i.oninput=()=>{try{
   let j=JSON.parse(atob(i.value.replace(/\s/g,'')));
   if(p)return;
-  p=new RTCPeerConnection({
-    iceServers:[], iceTransportPolicy:"all", iceCandidatePoolSize:0
-  });
+  p=new RTCPeerConnection({iceServers:[], iceTransportPolicy:"all"});
   p.onicecandidate=e=>{
     if(e.candidate)c.push(e.candidate.toJSON());
     else o.value=btoa(JSON.stringify({s:p.localDescription,c:c}));
@@ -20,12 +33,12 @@ i.oninput=()=>{try{
   p.ondatachannel=e=>{
     dc=e.channel;
     dc.onopen=()=>log("🟢 Verbonden");
-    dc.onclose=()=>log("🔴 Verbinding verbroken");
+    dc.onclose=()=>log("🔴 Verbroken");
     dc.onmessage=ev=>{
       let m=ev.data;
       log("⬅️ "+m);
-      let r=m=="jump"?"gesprongen":m=="attack"?"aanval":"?";
-      dc.send(r); log("➡️ "+r);
+      let r=(m==="jump")?"gesprongen":(m==="attack")?"aanval":"?";
+      if(dc.readyState==="open") dc.send(r), log("➡️ "+r);
     };
   };
   p.setRemoteDescription(j.s).then(()=>{
